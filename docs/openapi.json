@@ -1,0 +1,361 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "version": "1.0.0",
+    "title": "Mumu Bookkeeping API",
+    "description": "Mumu 记账软件后端 API 接口"
+  },
+  "servers": [
+    {
+      "url": "/api"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "123e4567-e89b-12d3... "
+          },
+          "name": {
+            "type": "string",
+            "example": "每日外卖记账"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "example": "每天中午12点自动记一笔外卖开销"
+          },
+          "cronExpression": {
+            "type": "string",
+            "nullable": true,
+            "example": "0 12 * * *"
+          },
+          "script": {
+            "type": "string",
+            "example": "await db.addTransaction({ amount: -25, type: \"EXPENSE\", category: \"餐饮\", merchant: \"美团外卖\" }); console.log(\"已记录外卖!\");"
+          },
+          "isActive": {
+            "type": "boolean",
+            "example": true
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2023-01-01T00:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "example": "2023-01-01T00:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "cronExpression",
+          "script",
+          "isActive",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "Transaction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "abc-123"
+          },
+          "amount": {
+            "type": "number",
+            "example": 12.5
+          },
+          "type": {
+            "type": "string",
+            "example": "EXPENSE"
+          },
+          "category": {
+            "type": "string",
+            "example": "餐饮"
+          },
+          "merchant": {
+            "type": "string",
+            "nullable": true,
+            "example": "麦当劳"
+          },
+          "remark": {
+            "type": "string",
+            "nullable": true,
+            "example": "午餐"
+          },
+          "payMethod": {
+            "type": "string",
+            "nullable": true,
+            "example": "WECHAT"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ],
+            "example": "2023-01-01T12:00:00.000Z"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "type",
+          "category",
+          "merchant",
+          "remark",
+          "payMethod",
+          "date",
+          "createdAt",
+          "updatedAt"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/tasks": {
+      "post": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "创建自定义脚本任务",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "每日外卖记账"
+                  },
+                  "description": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "每天中午12点自动记一笔外卖开销"
+                  },
+                  "cronExpression": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "0 12 * * *"
+                  },
+                  "script": {
+                    "type": "string",
+                    "example": "await db.addTransaction({ amount: -25, type: \"EXPENSE\", category: \"餐饮\", merchant: \"美团外卖\" }); console.log(\"已记录外卖!\");"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "example": true
+                  }
+                },
+                "required": [
+                  "name",
+                  "description",
+                  "cronExpression",
+                  "script",
+                  "isActive"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "任务创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "获取所有任务",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Task"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tasks/{id}/run": {
+      "post": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "手动执行一次任务脚本 (沙箱环境)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "执行完成",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "output": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "output"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transactions": {
+      "get": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "获取最近的账单流水",
+        "responses": {
+          "200": {
+            "description": "流水列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Transaction"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "记录一笔新账单 (含无障碍识屏直接调用)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "number",
+                    "example": 12.5
+                  },
+                  "type": {
+                    "type": "string",
+                    "example": "EXPENSE"
+                  },
+                  "category": {
+                    "type": "string",
+                    "example": "餐饮"
+                  },
+                  "merchant": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "麦当劳"
+                  },
+                  "remark": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "午餐"
+                  },
+                  "payMethod": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "WECHAT"
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "amount",
+                  "type",
+                  "category",
+                  "merchant",
+                  "remark",
+                  "payMethod"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "记录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transaction"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

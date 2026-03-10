@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiClient } from './client';
+import { TransactionsService } from './generated';
 
 const OFFLINE_TX_QUEUE = '@offline_tx_queue';
 
@@ -46,7 +46,7 @@ export async function syncOfflineTransactions() {
     try {
       // 剔除离线标识
       const { _offlineId, ...payload } = tx;
-      await apiClient.post('/transactions', payload);
+      await TransactionsService.postTransactions(payload);
       successCount++;
     } catch (e) {
       console.error(`[Sync] Failed to sync transaction: ${tx._offlineId}`, e);

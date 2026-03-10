@@ -34,7 +34,7 @@ export const TransactionList = () => {
       <Text style={styles.title}>最新流水</Text>
       <FlatList
         data={data}
-        keyExtractor={(item: any) => item.id}
+        keyExtractor={(item) => item.id}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
       />

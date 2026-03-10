@@ -5,7 +5,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { TransactionList } from './src/components/TransactionList';
 import { TaskList } from './src/components/TaskList';
 import { MumuAccessibilityService } from './src/api/accessibility';
-import { apiClient } from './src/api/client';
+import { TransactionsService } from './src/api/generated';
 import { addTransactionToOfflineQueue, syncOfflineTransactions } from './src/api/offlineSync';
 
 const queryClient = new QueryClient();
@@ -49,7 +49,7 @@ function AccessibilityController() {
         return { offline: true };
       } else {
         // 在线则直接提交到后端
-        return await apiClient.post('/transactions', data);
+        return await TransactionsService.postTransactions(data);
       }
     },
     onSuccess: (res: any) => {

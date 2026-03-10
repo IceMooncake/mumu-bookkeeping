@@ -1,29 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiClient } from './client';
-
-export interface Transaction {
-  id: string;
-  amount: number;
-  type: 'EXPENSE' | 'INCOME';
-  category: string;
-  merchant?: string;
-  remark?: string;
-  date: string;
-}
-
-export interface Task {
-  id: string;
-  name: string;
-  description?: string;
-  cronExpression?: string;
-  isActive: boolean;
-}
+import { TransactionsService, TasksService } from './generated';
+// We export the generated interfaces for components
+export type { Transaction } from './generated/models/Transaction';
+export type { Task } from './generated/models/Task';
 
 export const useTransactions = () => {
   return useQuery({
     queryKey: ['transactions'],
     queryFn: async () => {
-      const { data } = await apiClient.get<Transaction[]>('/transactions');
+      const data = await TransactionsService.getTransactions();
       return data;
     },
   });
@@ -33,7 +18,7 @@ export const useTasks = () => {
   return useQuery({
     queryKey: ['tasks'],
     queryFn: async () => {
-      const { data } = await apiClient.get<Task[]>('/tasks');
+      const data = await TasksService.getTasks();
       return data;
     },
   });

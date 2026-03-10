@@ -7,6 +7,8 @@ import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 import { prisma } from './db';
 import { runTaskScript } from './sandbox/runner';
+import * as fs from 'fs';
+import * as path from 'path';
 
 dotenv.config();
 
@@ -19,6 +21,15 @@ app.use('/api/transactions', transactionRouter);
 
 // 初始化 Swagger UI
 const openapiDocument = generateOpenAPI();
+
+// 自动将最新的 OpenAPI 文档写入到根目录的 docs 文件夹中，供前端随时使用
+const docsPath = path.resolve(process.cwd(), '../docs/openapi.json');
+if (!fs.existsSync(path.dirname(docsPath))) {
+  fs.mkdirSync(path.dirname(docsPath), { recursive: true });
+}
+fs.writeFileSync(docsPath, JSON.stringify(openapiDocument, null, 2), 'utf-8');
+
+app.get('/api-docs-json', (req, res) => res.json(openapiDocument));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openapiDocument));
 
 const PORT = process.env.PORT || 3000;
