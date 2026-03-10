@@ -25,7 +25,7 @@ export async function getOfflineQueue() {
   try {
     const queueStr = await AsyncStorage.getItem(OFFLINE_TX_QUEUE);
     return queueStr ? JSON.parse(queueStr) : [];
-  } catch (e) {
+  } catch {
     return [];
   }
 }
@@ -45,7 +45,8 @@ export async function syncOfflineTransactions() {
   for (const tx of queue) {
     try {
       // 剔除离线标识
-      const { _offlineId, ...payload } = tx;
+      const payload = { ...tx };
+      delete payload._offlineId;
       await TransactionsService.postTransactions(payload);
       successCount++;
     } catch (e) {
