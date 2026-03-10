@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Transaction {
+  id        String   @id @default(uuid())
+  amount    Float
+  type      String
+  category  String
+  merchant  String?
+  remark    String?
+  payMethod String?
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model JsTask {
+  id             String   @id @default(uuid())
+  name           String
+  description    String?
+  cronExpression String?
+  script         String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

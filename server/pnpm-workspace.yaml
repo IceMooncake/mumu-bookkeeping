@@ -1,0 +1,9 @@
+ignoredBuiltDependencies:
+  - '@prisma/engines'
+  - '@scarf/scarf'
+  - esbuild
+  - isolated-vm
+  - prisma
+
+onlyBuiltDependencies:
+  - '@prisma/client'

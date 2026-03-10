@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">MumuApp</string>
+    <string name="accessibility_service_description">Mumu 记账需要此权限来识别微信和支付宝的支付结果实现自动无感记账。</string>
+</resources>
