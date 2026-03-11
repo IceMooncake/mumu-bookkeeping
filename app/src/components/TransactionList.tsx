@@ -1,8 +1,7 @@
 ﻿import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
-import { useTransactions, useBooks, Transaction } from '../api/queries';
-import { TransactionsService } from '../api/generated';
+import { useTransactions, useBooks, useCreateTransaction, Transaction } from '../api/queries';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { useSettings } from '../contexts/SettingsContext';
 
@@ -28,6 +27,7 @@ export const TransactionList = () => {
   const { data: books, isLoading: isLoadingBooks } = useBooks();
   const { data: transactions, isLoading: isLoadingTxs, isError } = useTransactions(selectedBookId);
   const { heatmapBasis } = useSettings();
+  const createTransactionMutation = useCreateTransaction();
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
@@ -66,7 +66,7 @@ export const TransactionList = () => {
 
     try {
       setIsSubmitting(true);
-      await TransactionsService.postTransactions({
+      await createTransactionMutation.mutateAsync({
         amount: Number(amount),
         type,
         category,
@@ -84,10 +84,6 @@ export const TransactionList = () => {
       setRemark('');
       setDateStr('');
       setModalVisible(false);
-
-      // Invalidate queries
-      queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      queryClient.invalidateQueries({ queryKey: ['books'] });
     } catch (error: any) {
       Alert.alert('错误', error.message || '记账失败');
     } finally {
@@ -262,7 +258,7 @@ export const TransactionList = () => {
       ) : (
         <FlatList
           data={filteredTransactions}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => item.id ? item.id.toString() : ((item as any)._offlineId || `temp_${index}`)}
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}
         />

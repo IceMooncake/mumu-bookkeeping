@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { useTasks, useRunTask, Task } from '../api/queries';
 import { TaskEditor } from './TaskEditor';
@@ -74,7 +74,7 @@ export const TaskList = () => {
       ) : (
         <FlatList
           data={data}
-          keyExtractor={(item: any) => item.id}
+          keyExtractor={(item: any, index) => item.id ? item.id.toString() : (item._offlineId || `temp_${index}`)}
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}
         />

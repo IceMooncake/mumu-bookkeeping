@@ -1,13 +1,12 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert, Switch, ScrollView, TextInput, Modal } from 'react-native';
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from '@tanstack/react-query';
-import NetInfo from '@react-native-community/netinfo';
 import Toast from 'react-native-toast-message';
 import { TransactionList } from './src/components/TransactionList';
 import { TaskList } from './src/components/TaskList';
 import { MumuAccessibilityService } from './src/api/accessibility';
 import { TransactionsService, BooksService } from './src/api/generated';
-import { addTransactionToOfflineQueue, syncOfflineTransactions } from './src/api/offlineSync';
+import { addTransactionToOfflineQueue, syncOfflineTransactions, startHeartbeat, stopHeartbeat, getOnlineStatus } from './src/api/offlineSync';
 import { SettingsProvider, useSettings } from './src/contexts/SettingsContext';
 
 const queryClient = new QueryClient();
@@ -17,73 +16,76 @@ function AccessibilityController({ visible }: { visible?: boolean }) {
   const [isOffline, setIsOffline] = useState(false);
   const [, setSyncing] = useState(false);
 
-  // 网络状态监听与离线同步机制
+  // 心跳机制与离线同步机制
   useEffect(() => {
-    const unsubscribe = NetInfo.addEventListener(state => {
-      const offline = !state.isConnected;
-      
-      setIsOffline(prevOffline => {
+    startHeartbeat((onlineStatus) => {
+      const offline = !onlineStatus;
+      setIsOffline((prevOffline) => {
         if (offline && !prevOffline) {
           Toast.show({
             type: 'error',
-            text1: '网络连接已断开',
-            text2: '当前处于离线模式，记账转为本地队列',
+            text1: '服务不可达',
+            text2: '切换至离线本地模式，记账转为本地队列',
+            position: 'top',
+          });
+        } else if (!offline && prevOffline) {
+          // 仅做状态切换提示，具体同步交由心跳的 onSyncComplete 处理
+          Toast.show({
+            type: 'info',
+            text1: '网络恢复',
+            text2: '后台将自动同步本地积压账单...',
             position: 'top',
           });
         }
         return offline;
       });
-      
-      // 如果从离线恢复到在线，触发后台数据同步
-      if (!offline) {
-        handleSync();
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    Toast.show({
-      type: 'info',
-      text1: '网络恢复',
-      text2: '正在同步本地积压账单...',
-      position: 'top',
-    });
-    const syncedCount = await syncOfflineTransactions();
-    if (syncedCount > 0) {
-      // 同步完成后刷新账单和账本列表
+    }, (syncedCount) => {
+      // 每次后台同步完成后的回调
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['books'] });
-      Toast.show({
-        type: 'success',
-        text1: '同步完成',
-        text2: `已将 ${syncedCount} 笔离线账单同步至云端。`,
-        position: 'top',
-      });
-    }
-    setSyncing(false);
-  };
+      if (syncedCount > 0) {
+        Toast.show({
+          type: 'success',
+          text1: '后台同步完成',
+          text2: `已静默将 ${syncedCount} 笔本地账单同步至云端。`,
+          position: 'top',
+        });
+      }
+    });
 
-  // 记录账单的 mutation（改造成支持离线排队）
+    return () => stopHeartbeat();
+  }, []);
+
+  // 记录账单的 mutation（改造成完全本地优先）
   const recordMutation = useMutation({
     mutationFn: async (data: any) => {
-      if (isOffline) {
-        // 如果断网，写入本地队列
-        await addTransactionToOfflineQueue({ ...data, date: new Date().toISOString(), remark: (data.remark || '') + ' [离线]' });
-        return { offline: true };
-      } else {
-        // 在线则直接提交到后端
-        return await TransactionsService.postTransactions(data);
-      }
+      // 所有的流水请求直接进入本地队列缓存，而不是先尝试网络请求
+      const offlineRes = await addTransactionToOfflineQueue({ ...data, date: new Date().toISOString(), remark: (data.remark || '') + ' [无障碍自动记账]' });
+      return { offline: true, ...offlineRes };
+    },
+    onMutate: async (newTx: any) => {
+      await queryClient.cancelQueries({ queryKey: ['transactions'] });
+      const previousTxs = queryClient.getQueryData(['transactions']) || [];
+      queryClient.setQueryData(['transactions'], (old: any) => [
+        { ...newTx, id: 'temp_' + Date.now(), isPending: true },
+        ...(old || [])
+      ]);
+      return { previousTxs };
+    },
+    onError: (err, newTx, context: any) => {
+      queryClient.setQueryData(['transactions'], context?.previousTxs);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['books'] });
     },
     onSuccess: (res: any) => {
-      if (!res?.offline) {
-        queryClient.invalidateQueries({ queryKey: ['transactions'] });
-        queryClient.invalidateQueries({ queryKey: ['books'] });
-      } else {
-        Alert.alert("已离线记账", "暂无网络，由于您处于离线模式，该账单已暂存在本机。\n网络恢复后将自动同步。");
-      }
+      Toast.show({
+        type: 'success',
+        text1: '自动记账成功',
+        text2: '已加入本地队列等待同步',
+        position: 'top',
+      });
     }
   });
 

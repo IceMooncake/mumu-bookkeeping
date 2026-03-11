@@ -21,6 +21,11 @@ app.use('/api/tasks', taskRouter);
 app.use('/api/transactions', transactionRouter);
 app.use('/api/books', bookRouter);
 
+// 心跳接口，用于客户端进行网络探活
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // 初始化 Swagger UI
 const openapiDocument = generateOpenAPI();
 
