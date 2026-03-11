@@ -99,3 +99,67 @@ taskRouter.get('/', async (req: Request, res: Response) => {
   const tasks = await prisma.jsTask.findMany();
   res.json(tasks);
 });
+
+export const UpdateTaskDto = CreateTaskDto.partial();
+
+registry.registerPath({
+  method: 'put',
+  path: '/tasks/{id}',
+  tags: ['Tasks'],
+  summary: '更新自定义脚本任务',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: {
+      content: {
+        'application/json': { schema: UpdateTaskDto },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: '任务更新成功',
+      content: { 'application/json': { schema: TaskSchema } },
+    },
+  },
+});
+
+taskRouter.put('/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    const data = UpdateTaskDto.parse(req.body);
+    const updated = await prisma.jsTask.update({
+      where: { id },
+      data,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Params validate failed' });
+  }
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/tasks/{id}',
+  tags: ['Tasks'],
+  summary: '删除任务',
+  request: {
+    params: z.object({ id: z.string() })
+  },
+  responses: {
+    204: {
+      description: '删除成功',
+    },
+  },
+});
+
+taskRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = String(req.params.id);
+    await prisma.jsTask.delete({
+      where: { id },
+    });
+    res.status(204).send();
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Delete failed' });
+  }
+});

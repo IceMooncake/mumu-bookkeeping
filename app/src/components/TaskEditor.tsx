@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Modal, Switch } from 'react-native';
-import { useCreateTask } from '../api/queries';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Modal, Switch, Alert } from 'react-native';
+import { useCreateTask, useUpdateTask, useDeleteTask, Task } from '../api/queries';
 
 interface TaskEditorProps {
   visible: boolean;
   onClose: () => void;
+  task?: Task | null;
 }
 
-export const TaskEditor = ({ visible, onClose }: TaskEditorProps) => {
+export const TaskEditor = ({ visible, onClose, task }: TaskEditorProps) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [cronExpression, setCronExpression] = useState('');
@@ -15,30 +16,81 @@ export const TaskEditor = ({ visible, onClose }: TaskEditorProps) => {
   const [isActive, setIsActive] = useState(true);
 
   const createTaskMutation = useCreateTask();
+  const updateTaskMutation = useUpdateTask();
+  const deleteTaskMutation = useDeleteTask();
+
+  useEffect(() => {
+    if (task) {
+      setName(task.name || '');
+      setDescription(task.description || '');
+      setCronExpression(task.cronExpression || '');
+      setScript(task.script || '');
+      setIsActive(task.isActive ?? true);
+    } else {
+      setName('');
+      setDescription('');
+      setCronExpression('');
+      setScript('// Your JS code here\n// Use db.addTransaction({ ... })');
+      setIsActive(true);
+    }
+  }, [task, visible]);
 
   const handleSave = () => {
     if (!name || !script) return;
-    createTaskMutation.mutate(
-      {
-        name,
-        description: description || null,
-        cronExpression: cronExpression || null,
-        script,
-        isActive,
-      },
-      {
-        onSuccess: () => {
-          // Reset form
-          setName('');
-          setDescription('');
-          setCronExpression('');
-          setScript('// Your JS code here\n// Use db.addTransaction({ ... })');
-          setIsActive(true);
-          onClose();
+    
+    if (task) {
+      updateTaskMutation.mutate(
+        {
+          id: task.id,
+          data: {
+            name,
+            description: description || null,
+            cronExpression: cronExpression || null,
+            script,
+            isActive,
+          }
         },
-      }
-    );
+        {
+          onSuccess: () => {
+            onClose();
+          },
+        }
+      );
+    } else {
+      createTaskMutation.mutate(
+        {
+          name,
+          description: description || null,
+          cronExpression: cronExpression || null,
+          script,
+          isActive,
+        },
+        {
+          onSuccess: () => {
+            onClose();
+          },
+        }
+      );
+    }
   };
+
+  const handleDelete = () => {
+    if (!task) return;
+    Alert.alert('确认', '确定要删除这个任务吗？', [
+      { text: '取消', style: 'cancel' },
+      { 
+        text: '删除', 
+        style: 'destructive',
+        onPress: () => {
+          deleteTaskMutation.mutate(task.id, {
+            onSuccess: () => onClose()
+          });
+        }
+      }
+    ]);
+  };
+
+  const isPending = createTaskMutation.isPending || updateTaskMutation.isPending || deleteTaskMutation.isPending;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="formSheet">
@@ -47,12 +99,21 @@ export const TaskEditor = ({ visible, onClose }: TaskEditorProps) => {
           <TouchableOpacity onPress={onClose}>
             <Text style={styles.cancelText}>取消</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>新建任务任务</Text>
-          <TouchableOpacity onPress={handleSave} disabled={createTaskMutation.isPending}>
-            <Text style={[styles.saveText, createTaskMutation.isPending && styles.disabledText]}>
-              {createTaskMutation.isPending ? '保存中...' : '保存'}
-            </Text>
-          </TouchableOpacity>
+          <Text style={styles.title}>{task ? '编辑任务' : '新建任务'}</Text>
+          <View style={styles.headerRight}>
+            {task && (
+              <TouchableOpacity onPress={handleDelete} disabled={isPending} style={styles.deleteButtonHeader}>
+                <Text style={[styles.deleteText, isPending && styles.disabledText]}>
+                  删除
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={handleSave} disabled={isPending}>
+              <Text style={[styles.saveText, isPending && styles.disabledText]}>
+                {isPending ? '保存中...' : '保存'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.formContainer}>
@@ -122,6 +183,17 @@ const styles = StyleSheet.create({
   cancelText: {
     fontSize: 16,
     color: '#6b7280',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  deleteButtonHeader: {
+    marginRight: 16,
+  },
+  deleteText: {
+    fontSize: 16,
+    color: '#ef4444',
   },
   saveText: {
     fontSize: 16,

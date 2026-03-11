@@ -7,6 +7,7 @@ export const TaskList = () => {
   const { data, isLoading, isError } = useTasks();
   const runTaskMutation = useRunTask();
   const [editorVisible, setEditorVisible] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   const handleRun = (id: string) => {
     runTaskMutation.mutate(id, {
@@ -19,9 +20,14 @@ export const TaskList = () => {
     });
   };
 
+  const handleEdit = (task: Task) => {
+    setEditingTask(task);
+    setEditorVisible(true);
+  };
+
   const renderItem = ({ item }: { item: Task }) => {
     return (
-      <View style={styles.card}>
+      <TouchableOpacity style={styles.card} onPress={() => handleEdit(item)}>
         <View style={styles.header}>
           <Text style={styles.name}>{item.name}</Text>
           <View style={[styles.badge, { backgroundColor: item.isActive ? '#10b981' : '#d1d5db' }]}>
@@ -35,13 +41,16 @@ export const TaskList = () => {
           </Text>
           <TouchableOpacity 
             style={styles.runBtn} 
-            onPress={() => handleRun(item.id)}
+            onPress={(e) => {
+              e.stopPropagation();
+              handleRun(item.id);
+            }}
             disabled={runTaskMutation.isPending}
           >
             <Text style={styles.runBtnText}>立即执行</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -52,7 +61,10 @@ export const TaskList = () => {
     <View style={styles.container}>
       <View style={styles.titleRow}>
         <Text style={styles.title}>任务沙箱</Text>
-        <TouchableOpacity onPress={() => setEditorVisible(true)} style={styles.addBtn}>
+        <TouchableOpacity onPress={() => {
+            setEditingTask(null);
+            setEditorVisible(true);
+        }} style={styles.addBtn}>
           <Text style={styles.addBtnText}>+ 写脚本</Text>
         </TouchableOpacity>
       </View>
@@ -71,6 +83,7 @@ export const TaskList = () => {
       <TaskEditor 
         visible={editorVisible} 
         onClose={() => setEditorVisible(false)} 
+        task={editingTask}
       />
     </View>
   );

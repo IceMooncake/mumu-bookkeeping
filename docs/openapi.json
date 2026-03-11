@@ -322,6 +322,90 @@
         }
       }
     },
+    "/tasks/{id}": {
+      "put": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "更新自定义脚本任务",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "每日外卖记账"
+                  },
+                  "description": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "每天中午12点自动记一笔外卖开销"
+                  },
+                  "cronExpression": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "0 12 * * *"
+                  },
+                  "script": {
+                    "type": "string",
+                    "example": "await db.addTransaction({ amount: -25, type: \"EXPENSE\", category: \"餐饮\", merchant: \"美团外卖\" }); console.log(\"已记录外卖!\");"
+                  },
+                  "isActive": {
+                    "type": "boolean",
+                    "example": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "任务更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "删除任务",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "删除成功"
+          }
+        }
+      }
+    },
     "/transactions": {
       "get": {
         "tags": [
