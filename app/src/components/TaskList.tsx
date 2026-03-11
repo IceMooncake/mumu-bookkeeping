@@ -1,13 +1,23 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
-import { useTasks, Task } from '../api/queries';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { useTasks, useRunTask, Task } from '../api/queries';
+import { TaskEditor } from './TaskEditor';
 
 export const TaskList = () => {
   const { data, isLoading, isError } = useTasks();
+  const runTaskMutation = useRunTask();
+  const [editorVisible, setEditorVisible] = useState(false);
 
-  if (isLoading) return <ActivityIndicator style={styles.center} color="#8b5cf6" />;
-  if (isError) return <Text style={styles.error}>加载任务失败</Text>;
-  if (!data || data.length === 0) return <Text style={styles.empty}>暂无定制任务</Text>;
+  const handleRun = (id: string) => {
+    runTaskMutation.mutate(id, {
+      onSuccess: (res: any) => {
+        Alert.alert('执行成功', res?.output || '任务已成功运行');
+      },
+      onError: (err) => {
+        Alert.alert('执行失败', String(err));
+      }
+    });
+  };
 
   const renderItem = ({ item }: { item: Task }) => {
     return (
@@ -19,21 +29,48 @@ export const TaskList = () => {
           </View>
         </View>
         {item.description ? <Text style={styles.desc}>{item.description}</Text> : null}
-        <Text style={styles.cron}>
-          Cron: {item.cronExpression ? item.cronExpression : '手动触发'}
-        </Text>
+        <View style={styles.footer}>
+          <Text style={styles.cron}>
+            Cron: {item.cronExpression ? item.cronExpression : '手动触发'}
+          </Text>
+          <TouchableOpacity 
+            style={styles.runBtn} 
+            onPress={() => handleRun(item.id)}
+            disabled={runTaskMutation.isPending}
+          >
+            <Text style={styles.runBtnText}>立即执行</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
 
+  if (isLoading) return <ActivityIndicator style={styles.center} color="#8b5cf6" />;
+  if (isError) return <Text style={styles.error}>加载任务失败</Text>;
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>任务沙箱</Text>
-      <FlatList
-        data={data}
-        keyExtractor={(item: any) => item.id}
-        renderItem={renderItem}
-        showsVerticalScrollIndicator={false}
+      <View style={styles.titleRow}>
+        <Text style={styles.title}>任务沙箱</Text>
+        <TouchableOpacity onPress={() => setEditorVisible(true)} style={styles.addBtn}>
+          <Text style={styles.addBtnText}>+ 写脚本</Text>
+        </TouchableOpacity>
+      </View>
+
+      {(!data || data.length === 0) ? (
+        <Text style={styles.empty}>暂无定制任务</Text>
+      ) : (
+        <FlatList
+          data={data}
+          keyExtractor={(item: any) => item.id}
+          renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+
+      <TaskEditor 
+        visible={editorVisible} 
+        onClose={() => setEditorVisible(false)} 
       />
     </View>
   );
@@ -48,11 +85,26 @@ const styles = StyleSheet.create({
   center: {
     padding: 20,
   },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 12,
     color: '#1f2937',
+  },
+  addBtn: {
+    backgroundColor: '#8b5cf6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  addBtnText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
   card: {
     backgroundColor: '#ffffff',
@@ -90,7 +142,26 @@ const styles = StyleSheet.create({
     backgroundColor: '#f3f4f6',
     padding: 4,
     borderRadius: 4,
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
+  },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  runBtn: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  runBtnText: {
+    fontSize: 12,
+    color: '#3b82f6',
+    fontWeight: 'bold',
   },
   badge: {
     paddingHorizontal: 8,
