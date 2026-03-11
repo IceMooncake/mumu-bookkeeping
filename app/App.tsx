@@ -2,6 +2,7 @@
 import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert } from 'react-native';
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
+import Toast from 'react-native-toast-message';
 import { TransactionList } from './src/components/TransactionList';
 import { TaskList } from './src/components/TaskList';
 import { MumuAccessibilityService } from './src/api/accessibility';
@@ -18,8 +19,20 @@ function AccessibilityController() {
   // 网络状态监听与离线同步机制
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      const offline = !(state.isConnected && state.isInternetReachable !== false);
-      setIsOffline(offline);
+      if (state.isInternetReachable === null) return;
+      
+      const offline = !(state.isConnected && state.isInternetReachable);
+      setIsOffline(prevOffline => {
+        if (offline && !prevOffline) {
+          Toast.show({
+            type: 'error',
+            text1: '网络连接已断开',
+            text2: '当前处于离线模式，记账转为本地队列',
+            position: 'top',
+          });
+        }
+        return offline;
+      });
       
       // 如果从离线恢复到在线，触发后台数据同步
       if (!offline) {
@@ -31,11 +44,22 @@ function AccessibilityController() {
 
   const handleSync = async () => {
     setSyncing(true);
+    Toast.show({
+      type: 'info',
+      text1: '网络恢复',
+      text2: '正在同步本地积压账单...',
+      position: 'top',
+    });
     const syncedCount = await syncOfflineTransactions();
     if (syncedCount > 0) {
       // 同步完成后刷新账单列表
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
-      // Alert.alert('同步完成', `已将 ${syncedCount} 笔离线账单同步至云端。`);
+      Toast.show({
+        type: 'success',
+        text1: '同步完成',
+        text2: `已将 ${syncedCount} 笔离线账单同步至云端。`,
+        position: 'top',
+      });
     }
     setSyncing(false);
   };
@@ -116,16 +140,6 @@ function AccessibilityController() {
 
   return (
     <View>
-      {isOffline && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineText}>当前处于离线模式，任务引擎部分禁用，记账已转为本地队列！</Text>
-        </View>
-      )}
-      {syncing && (
-        <View style={[styles.offlineBanner, { backgroundColor: '#3b82f6' }]}>
-          <Text style={styles.offlineText}>网络恢复，正在同步本地积压账单...</Text>
-        </View>
-      )}
       <View style={styles.a11yContainer}>
         <Text style={styles.a11yText}>
           自动记账扫描: <Text style={{ color: isEnabled ? '#10b981' : '#ef4444' }}>{isEnabled ? '运行中' : '未开启'}</Text>
@@ -159,6 +173,7 @@ function App(): React.JSX.Element {
           <TaskList />
         </View>
 
+        <Toast />
       </SafeAreaView>
     </QueryClientProvider>
   );
@@ -176,17 +191,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
     backgroundColor: '#f9fafb',
-  },
-  offlineBanner: {
-    backgroundColor: '#ef4444',
-    padding: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  offlineText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
   },
   a11yContainer: {
     padding: 16,
