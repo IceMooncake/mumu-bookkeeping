@@ -1,36 +1,55 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { TransactionsService, TasksService } from './generated';
+import { TransactionsService, TasksService, BooksService } from './generated';
 import type { Transaction } from './generated/models/Transaction';
 import type { Task } from './generated/models/Task';
+import type { Book } from './generated/models/Book';
 
 // We export the generated interfaces for components
-export type { Transaction, Task };
+export type { Transaction, Task, Book };
 
 const CACHE_KEYS = {
   TRANSACTIONS: '@cache_transactions',
   TASKS: '@cache_tasks',
+  BOOKS: '@cache_books',
 };
 
-export const useTransactions = () => {
+export const useBooks = () => {
   return useQuery({
-    queryKey: ['transactions'],
+    queryKey: ['books'],
     queryFn: async () => {
       try {
-        const data = await TransactionsService.getTransactions();
-        // 联网成功，同步数据到本地进行缓存
-        await AsyncStorage.setItem(CACHE_KEYS.TRANSACTIONS, JSON.stringify(data));
+        const data = await BooksService.getBooks();
+        await AsyncStorage.setItem(CACHE_KEYS.BOOKS, JSON.stringify(data));
         return data;
       } catch (error) {
-        // 请求失败（断网或服务器异常）时，尝试使用本地缓存数据
-        const cached = await AsyncStorage.getItem(CACHE_KEYS.TRANSACTIONS);
+        const cached = await AsyncStorage.getItem(CACHE_KEYS.BOOKS);
+        if (cached) {
+          return JSON.parse(cached) as Book[];
+        }
+        throw error;
+      }
+    },
+    networkMode: 'always',
+  });
+};
+
+export const useTransactions = (bookId?: string) => {
+  return useQuery({
+    queryKey: ['transactions', bookId],
+    queryFn: async () => {
+      try {
+        const data = await TransactionsService.getTransactions(bookId);
+        await AsyncStorage.setItem(`${CACHE_KEYS.TRANSACTIONS}_${bookId || 'all'}`, JSON.stringify(data));
+        return data;
+      } catch (error) {
+        const cached = await AsyncStorage.getItem(`${CACHE_KEYS.TRANSACTIONS}_${bookId || 'all'}`);
         if (cached) {
           return JSON.parse(cached) as Transaction[];
         }
         throw error;
       }
     },
-    // 将 networkMode 设置为 always，确保断网时 queryFn 依然执行进入 catch 逻辑读取缓存
     networkMode: 'always',
   });
 };

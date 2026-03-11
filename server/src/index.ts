@@ -3,6 +3,7 @@ import swaggerUi from 'swagger-ui-express';
 import { generateOpenAPI } from './openapi';
 import { taskRouter } from './routes/task';
 import { transactionRouter } from './routes/transaction';
+import { bookRouter } from './routes/book';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 import { prisma } from './db';
@@ -18,6 +19,7 @@ app.use(express.json());
 // 挂载路由
 app.use('/api/tasks', taskRouter);
 app.use('/api/transactions', transactionRouter);
+app.use('/api/books', bookRouter);
 
 // 初始化 Swagger UI
 const openapiDocument = generateOpenAPI();
@@ -34,10 +36,20 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openapiDocument));
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server is running at http://localhost:${PORT}`);
   console.log(`Swagger UI is active at http://localhost:${PORT}/api-docs`);
   
+  if (await prisma.book.count() === 0) {
+    await prisma.book.create({
+      data: {
+        name: '默认账本',
+        isDefault: true,
+      }
+    });
+    console.log('[Init] Default book created.');
+  }
+
   // 简易启动全局调度器
   startCronScheduler();
 });

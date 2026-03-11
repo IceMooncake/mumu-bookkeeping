@@ -95,6 +95,11 @@
             "nullable": true,
             "example": "WECHAT"
           },
+          "bookId": {
+            "type": "string",
+            "nullable": true,
+            "example": "book-123"
+          },
           "date": {
             "anyOf": [
               {
@@ -139,6 +144,57 @@
           "remark",
           "payMethod",
           "date",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "Book": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "book-123"
+          },
+          "name": {
+            "type": "string",
+            "example": "默认账本"
+          },
+          "balance": {
+            "type": "number",
+            "example": 12500.5
+          },
+          "isDefault": {
+            "type": "boolean",
+            "example": true
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "balance",
+          "isDefault",
           "createdAt",
           "updatedAt"
         ]
@@ -272,6 +328,17 @@
           "Transactions"
         ],
         "summary": "获取最近的账单流水",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "example": "book-123"
+            },
+            "required": false,
+            "name": "bookId",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "流水列表",
@@ -326,6 +393,11 @@
                     "nullable": true,
                     "example": "WECHAT"
                   },
+                  "bookId": {
+                    "type": "string",
+                    "nullable": true,
+                    "example": "book-123"
+                  },
                   "date": {
                     "type": "string",
                     "format": "date-time"
@@ -353,6 +425,139 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/books": {
+      "get": {
+        "tags": [
+          "Books"
+        ],
+        "summary": "获取所有账本列表",
+        "responses": {
+          "200": {
+            "description": "账本列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Book"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Books"
+        ],
+        "summary": "创建新账本",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "旅游基金"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "example": 0
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Book"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/books/{id}": {
+      "put": {
+        "tags": [
+          "Books"
+        ],
+        "summary": "更新账本",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "example": "修改后的账本"
+                  },
+                  "isDefault": {
+                    "type": "boolean",
+                    "example": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Book"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Books"
+        ],
+        "summary": "删除账本",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功"
           }
         }
       }

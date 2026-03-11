@@ -1,18 +1,25 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
-import { useTransactions, Transaction } from '../api/queries';
+﻿import React, { useState } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView } from 'react-native';
+import { useTransactions, useBooks, Transaction } from '../api/queries';
 
 export const TransactionList = () => {
-  const { data, isLoading, isError } = useTransactions();
+  const [selectedBookId, setSelectedBookId] = useState<string | undefined>(undefined);
+  
+  const { data: books, isLoading: isLoadingBooks } = useBooks();
+  const { data: transactions, isLoading: isLoadingTxs, isError } = useTransactions(selectedBookId);
 
-  if (isLoading) return <ActivityIndicator style={styles.center} color="#3b82f6" />;
-  if (isError) return <Text style={styles.error}>加载账单失败</Text>;
-  if (!data || data.length === 0) return <Text style={styles.empty}>暂无账单数据</Text>;
+  React.useEffect(() => {
+    if (books && books.length > 0 && !selectedBookId) {
+      const defaultBook = books.find(b => b.isDefault) || books[0];
+      setSelectedBookId(defaultBook.id);
+    }
+  }, [books, selectedBookId]);
+
+  const activeBook = books?.find(b => b.id === selectedBookId);
 
   const renderItem = ({ item }: { item: Transaction }) => {
     const isExpense = item.type === 'EXPENSE';
-    const amountStr = isExpense ? `-¥${Math.abs(item.amount)}` : `+¥${item.amount}`;
-
+    const amountStr = isExpense ? `-${Math.abs(item.amount)}` : `+${item.amount}`;
     return (
       <View style={styles.card}>
         <View style={styles.row}>
@@ -31,13 +38,51 @@ export const TransactionList = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>最新流水</Text>
-      <FlatList
-        data={data}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        showsVerticalScrollIndicator={false}
-      />
+      <View style={styles.header}>
+        <Text style={styles.title}>账本流水</Text>
+        {activeBook && (
+          <Text style={[styles.balanceText, { color: (activeBook.balance || 0) < 0 ? '#ef4444' : '#10b981' }]}>
+            结余: ￥{(activeBook.balance || 0).toFixed(2)}
+          </Text>
+        )}
+      </View>
+
+      {isLoadingBooks ? (
+        <ActivityIndicator style={styles.center} color="#3b82f6" />
+      ) : books && books.length > 0 ? (
+        <View style={styles.bookSelector}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {books.map(book => (
+              <TouchableOpacity
+                key={book.id}
+                style={[styles.bookTab, selectedBookId === book.id && styles.bookTabActive]}
+                onPress={() => setSelectedBookId(book.id)}
+              >
+                <Text style={[styles.bookTabText, selectedBookId === book.id && styles.bookTabTextActive]}>
+                  {book.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      ) : (
+        <Text style={styles.empty}>请先创建一个账本</Text>
+      )}
+
+      {books && books.length > 0 && (isLoadingTxs ? (
+        <ActivityIndicator style={styles.center} color="#3b82f6" />
+      ) : isError ? (
+        <Text style={styles.error}>加载账单失败</Text>
+      ) : (!transactions || transactions.length === 0) ? (
+        <Text style={styles.empty}>当前账本暂无金额变动明细</Text>
+      ) : (
+        <FlatList
+          data={transactions}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          showsVerticalScrollIndicator={false}
+        />
+      ))}
     </View>
   );
 };
@@ -48,14 +93,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
   },
-  center: {
-    padding: 20,
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
   },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 12,
     color: '#1f2937',
+  },
+  balanceText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  bookSelector: {
+    marginBottom: 12,
+  },
+  bookTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#e5e7eb',
+    marginRight: 8,
+  },
+  bookTabActive: {
+    backgroundColor: '#8b5cf6',
+  },
+  bookTabText: {
+    fontSize: 14,
+    color: '#374151',
+  },
+  bookTabTextActive: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
+  center: {
+    padding: 20,
   },
   card: {
     backgroundColor: '#ffffff',
