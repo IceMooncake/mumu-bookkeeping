@@ -19,9 +19,8 @@ function AccessibilityController({ visible }: { visible?: boolean }) {
   // 网络状态监听与离线同步机制
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      if (state.isInternetReachable === null) return;
+      const offline = !state.isConnected;
       
-      const offline = !(state.isConnected && state.isInternetReachable);
       setIsOffline(prevOffline => {
         if (offline && !prevOffline) {
           Toast.show({
