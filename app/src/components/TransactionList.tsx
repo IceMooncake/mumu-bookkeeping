@@ -4,6 +4,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTransactions, useBooks, Transaction } from '../api/queries';
 import { TransactionsService } from '../api/generated';
 
+const formatDateTime = (date: Date) => {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 export const TransactionList = () => {
   const [selectedBookId, setSelectedBookId] = useState<string | undefined>(undefined);
   const [modalVisible, setModalVisible] = useState(false);
@@ -13,6 +18,7 @@ export const TransactionList = () => {
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [remark, setRemark] = useState('');
+  const [dateStr, setDateStr] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const queryClient = useQueryClient();
@@ -42,6 +48,12 @@ export const TransactionList = () => {
       return;
     }
 
+    const parsedDate = new Date(dateStr.replace(' ', 'T') + ':00');
+    if (isNaN(parsedDate.getTime())) {
+      Alert.alert('提示', '请输入有效的日期格式 (YYYY-MM-DD HH:mm)');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await TransactionsService.postTransactions({
@@ -52,6 +64,7 @@ export const TransactionList = () => {
         remark: remark.trim() || null,
         payMethod: null,
         bookId: selectedBookId,
+        date: parsedDate.toISOString(),
       });
 
       // Reset form
@@ -59,6 +72,7 @@ export const TransactionList = () => {
       setAmount('');
       setCategory('');
       setRemark('');
+      setDateStr('');
       setModalVisible(false);
 
       // Invalidate queries
@@ -84,7 +98,7 @@ export const TransactionList = () => {
         </View>
         <View style={styles.row}>
           <Text style={styles.merchant}>{item.merchant || '未记录商户'}</Text>
-          <Text style={styles.date}>{new Date(item.date).toLocaleDateString()}</Text>
+          <Text style={styles.date}>{formatDateTime(new Date(item.date))}</Text>
         </View>
       </View>
     );
@@ -101,7 +115,10 @@ export const TransactionList = () => {
             </Text>
           )}
           {activeBook && (
-            <TouchableOpacity style={styles.recordBtn} onPress={() => setModalVisible(true)}>
+            <TouchableOpacity style={styles.recordBtn} onPress={() => {
+              setDateStr(formatDateTime(new Date()));
+              setModalVisible(true);
+            }}>
               <Text style={styles.recordBtnText}>+ 记一笔</Text>
             </TouchableOpacity>
           )}
@@ -142,6 +159,13 @@ export const TransactionList = () => {
               keyboardType="numeric"
               value={amount}
               onChangeText={setAmount}
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="日期时间 (YYYY-MM-DD HH:mm)"
+              value={dateStr}
+              onChangeText={setDateStr}
             />
             
             <TextInput
