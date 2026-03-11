@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert } from 'react-native';
+import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert, Switch } from 'react-native';
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import Toast from 'react-native-toast-message';
@@ -11,10 +11,10 @@ import { addTransactionToOfflineQueue, syncOfflineTransactions } from './src/api
 
 const queryClient = new QueryClient();
 
-function AccessibilityController() {
+function AccessibilityController({ visible }: { visible?: boolean }) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [, setSyncing] = useState(false);
 
   // 网络状态监听与离线同步机制
   useEffect(() => {
@@ -138,39 +138,89 @@ function AccessibilityController() {
     };
   }, [isOffline, recordMutation]);
 
+  if (!visible) return null;
+
+  const toggleSwitch = (val: boolean) => {
+    if (val && !isEnabled) {
+      MumuAccessibilityService.openSettings();
+    }
+  };
+
   return (
-    <View>
+    <View style={styles.settingsSection}>
+      <Text style={styles.settingsGroupTitle}>核心功能</Text>
       <View style={styles.a11yContainer}>
-        <Text style={styles.a11yText}>
-          自动记账扫描: <Text style={{ color: isEnabled ? '#10b981' : '#ef4444' }}>{isEnabled ? '运行中' : '未开启'}</Text>
-        </Text>
-        {!isEnabled && (
-          <TouchableOpacity style={styles.btn} onPress={MumuAccessibilityService.openSettings}>
-            <Text style={styles.btnText}>去开启权限</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.a11yTextWrapper}>
+          <Text style={styles.a11yText}>自动记账服务</Text>
+          <Text style={styles.a11ySubText}>开启无障碍后，可监控屏幕支付成功页面自动记账</Text>
+        </View>
+        <Switch
+          trackColor={{ false: '#d1d5db', true: '#c4b5fd' }}
+          thumbColor={isEnabled ? '#8b5cf6' : '#f3f4f6'}
+          onValueChange={toggleSwitch}
+          value={isEnabled}
+        />
       </View>
     </View>
   );
 }
 
 function App(): React.JSX.Element {
+  const [activeTab, setActiveTab] = useState<'transactions' | 'sandbox' | 'settings'>('transactions');
+
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#f3f4f6" />
         
-        {/* 控制面板 */}
-        <AccessibilityController />
+        {/* 全局监听（不含UI） */}
+        <AccessibilityController visible={false} />
 
-        {/* 上半部分：流水展示 */}
-        <View style={styles.section}>
-          <TransactionList />
+        <View style={styles.content}>
+          {activeTab === 'transactions' && (
+            <View style={styles.section}>
+              <TransactionList />
+            </View>
+          )}
+
+          {activeTab === 'sandbox' && (
+            <View style={[styles.section, styles.borderTop]}>
+              <TaskList />
+            </View>
+          )}
+
+          {activeTab === 'settings' && (
+            <View style={styles.settingsWrapper}>
+              {/* 设置项 UI 控制 */}
+              <AccessibilityController visible={true} />
+              
+              <View style={styles.settingsContent}>
+                <Text style={styles.settingsHint}>更多设置功能开发中...</Text>
+              </View>
+            </View>
+          )}
         </View>
 
-        {/* 下半部分：沙箱任务展示 */}
-        <View style={[styles.section, styles.borderTop]}>
-          <TaskList />
+        {/* 底部导航栏 */}
+        <View style={styles.tabBar}>
+          <TouchableOpacity 
+            style={styles.tabItem} 
+            onPress={() => setActiveTab('transactions')}
+          >
+            <Text style={[styles.tabText, activeTab === 'transactions' && styles.tabTextActive]}>流水</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.tabItem} 
+            onPress={() => setActiveTab('sandbox')}
+          >
+            <Text style={[styles.tabText, activeTab === 'sandbox' && styles.tabTextActive]}>沙箱</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.tabItem} 
+            onPress={() => setActiveTab('settings')}
+          >
+            <Text style={[styles.tabText, activeTab === 'settings' && styles.tabTextActive]}>设置</Text>
+          </TouchableOpacity>
         </View>
 
         <Toast />
@@ -184,6 +234,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f3f4f6',
   },
+  content: {
+    flex: 1,
+  },
   section: {
     flex: 1,
   },
@@ -192,31 +245,75 @@ const styles = StyleSheet.create({
     borderTopColor: '#e5e7eb',
     backgroundColor: '#f9fafb',
   },
+  settingsWrapper: {
+    flex: 1,
+    backgroundColor: '#f3f4f6',
+  },
+  settingsSection: {
+    marginVertical: 12,
+  },
+  settingsGroupTitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginLeft: 16,
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  settingsContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsHint: {
+    color: '#9ca3af',
+    fontSize: 14,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    height: 56,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabText: {
+    fontSize: 14,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: '#8b5cf6',
+    fontWeight: 'bold',
+  },
   a11yContainer: {
     padding: 16,
     backgroundColor: '#ffffff',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
+  a11yTextWrapper: {
+    flex: 1,
+    paddingRight: 16,
+  },
   a11yText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#374151',
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#111827',
   },
-  btn: {
-    backgroundColor: '#8b5cf6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  btnText: {
-    color: 'white',
+  a11ySubText: {
     fontSize: 12,
-    fontWeight: 'bold',
-  }
+    color: '#6b7280',
+    marginTop: 4,
+  },
 });
 
 export default App;
