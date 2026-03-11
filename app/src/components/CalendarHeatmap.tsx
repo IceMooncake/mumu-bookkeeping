@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Animated, PanResponder } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, PanResponder } from 'react-native';
 import { Transaction } from '../api/queries';
 
 interface CalendarHeatmapProps {
@@ -44,6 +44,10 @@ const RED_PALETTE = generatePalette('#fee2e2', '#7f1d1d', 256);
 const GREEN_PALETTE_SHORT = generatePalette('#dcfce7', '#14532d', 20);
 const RED_PALETTE_SHORT = generatePalette('#fee2e2', '#7f1d1d', 20);
 
+// Text colors transitioning from rich black to white
+const TEXT_PALETTE_LONG = generatePalette('#374151', '#ffffff', 256);
+const TEXT_PALETTE_SHORT = generatePalette('#374151', '#ffffff', 20);
+
 const toDateString = (d: Date) => {
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -67,7 +71,7 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({ transactions, 
 
   const getHeatmapColor = (dateStr: string) => {
     const stat = stats.get(dateStr);
-    if (!stat) return '#f3f4f6'; // Empty gray
+    if (!stat) return { bg: '#f3f4f6', text: '#374151' }; // Empty gray
     
     let depth = 0;
     let maxLevels = 255;
@@ -85,13 +89,19 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({ transactions, 
     if (colorIndex > maxLevels) colorIndex = maxLevels;
 
     let palette;
+    let textPalette;
     if (basis === 'count') {
       palette = stat.netIncome >= 0 ? GREEN_PALETTE_SHORT : RED_PALETTE_SHORT;
+      textPalette = TEXT_PALETTE_SHORT;
     } else {
       palette = stat.netIncome >= 0 ? GREEN_PALETTE : RED_PALETTE;
+      textPalette = TEXT_PALETTE_LONG;
     }
 
-    return palette[colorIndex];
+    return { 
+      bg: palette[colorIndex], 
+      text: textPalette[colorIndex] 
+    };
   };
 
   // Generate days based on selection month (if expanded) or week (if collapsed)
@@ -178,6 +188,8 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({ transactions, 
           const isSelected = toDateString(selectedDate) === ds;
           const isCurrentMonth = d.getMonth() === selectedDate.getMonth() || !expanded;
           
+          const colors = getHeatmapColor(ds);
+
           return (
             <TouchableOpacity 
               key={ds + i} 
@@ -186,11 +198,12 @@ export const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({ transactions, 
             >
               <View style={[
                   styles.cell, 
-                  { backgroundColor: getHeatmapColor(ds) },
+                  { backgroundColor: colors.bg },
                   isSelected && styles.cellSelected
                 ]}>
                 <Text style={[
                   styles.cellText,
+                  { color: colors.text },
                   !isCurrentMonth && styles.cellTextDimmed,
                   isSelected && styles.cellTextSelected
                 ]}>
@@ -265,6 +278,5 @@ const styles = StyleSheet.create({
   },
   cellTextSelected: {
     fontWeight: 'bold',
-    color: '#1e3a8a',
   },
 });
