@@ -8,6 +8,7 @@ import { TaskList } from './src/components/TaskList';
 import { MumuAccessibilityService } from './src/api/accessibility';
 import { TransactionsService, BooksService } from './src/api/generated';
 import { addTransactionToOfflineQueue, syncOfflineTransactions } from './src/api/offlineSync';
+import { SettingsProvider, useSettings } from './src/contexts/SettingsContext';
 
 const queryClient = new QueryClient();
 
@@ -317,12 +318,46 @@ function BooksTab() {
   );
 }
 
+function SettingsTab() {
+  const { heatmapBasis, setHeatmapBasis } = useSettings();
+
+  return (
+    <View style={styles.settingsWrapper}>
+      {/* 设置项 UI 控制 */}
+      <AccessibilityController visible={true} />
+      
+      <View style={styles.settingsSection}>
+        <Text style={styles.settingsGroupTitle}>日历热力图依据</Text>
+        <View style={styles.a11yContainer}>
+          <TouchableOpacity 
+            style={{flex: 1, paddingVertical: 12, flexDirection: 'row', alignItems: 'center'}}
+            onPress={() => setHeatmapBasis('count')}
+          >
+            <Text style={[styles.a11yText, { flex: 1 }]}>按照流水笔数</Text>
+            {heatmapBasis === 'count' && <Text style={{color: '#8b5cf6', fontSize: 16}}>✓</Text>}
+          </TouchableOpacity>
+        </View>
+        <View style={[styles.a11yContainer, { borderTopWidth: 0 }]}>
+          <TouchableOpacity 
+            style={{flex: 1, paddingVertical: 12, flexDirection: 'row', alignItems: 'center'}}
+            onPress={() => setHeatmapBasis('amount')}
+          >
+            <Text style={[styles.a11yText, { flex: 1 }]}>按照金额</Text>
+            {heatmapBasis === 'amount' && <Text style={{color: '#8b5cf6', fontSize: 16}}>✓</Text>}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 function App(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<'transactions' | 'sandbox' | 'books' | 'settings'>('transactions');
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <SafeAreaView style={styles.container}>
+    <SettingsProvider>
+      <QueryClientProvider client={queryClient}>
+        <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" backgroundColor="#f3f4f6" />
         
         {/* 全局监听（不含UI） */}
@@ -348,14 +383,7 @@ function App(): React.JSX.Element {
           )}
 
           {activeTab === 'settings' && (
-            <View style={styles.settingsWrapper}>
-              {/* 设置项 UI 控制 */}
-              <AccessibilityController visible={true} />
-              
-              <View style={styles.settingsContent}>
-                <Text style={styles.settingsHint}>更多设置功能开发中...</Text>
-              </View>
-            </View>
+            <SettingsTab />
           )}
         </View>
 
@@ -389,7 +417,8 @@ function App(): React.JSX.Element {
 
         <Toast />
       </SafeAreaView>
-    </QueryClientProvider>
+      </QueryClientProvider>
+    </SettingsProvider>
   );
 }
 

@@ -1,8 +1,10 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTransactions, useBooks, Transaction } from '../api/queries';
 import { TransactionsService } from '../api/generated';
+import { CalendarHeatmap } from './CalendarHeatmap';
+import { useSettings } from '../contexts/SettingsContext';
 
 const formatDateTime = (date: Date) => {
   const pad = (n: number) => n.toString().padStart(2, '0');
@@ -20,10 +22,18 @@ export const TransactionList = () => {
   const [remark, setRemark] = useState('');
   const [dateStr, setDateStr] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date());
 
   const queryClient = useQueryClient();
   const { data: books, isLoading: isLoadingBooks } = useBooks();
   const { data: transactions, isLoading: isLoadingTxs, isError } = useTransactions(selectedBookId);
+  const { heatmapBasis } = useSettings();
+
+  const filteredTransactions = useMemo(() => {
+    if (!transactions) return [];
+    const dateStr = formatDateTime(selectedDate).split(' ')[0];
+    return transactions.filter(t => t.date.startsWith(dateStr));
+  }, [transactions, selectedDate]);
 
   React.useEffect(() => {
     if (books && books.length > 0 && !selectedBookId) {
@@ -116,7 +126,12 @@ export const TransactionList = () => {
           )}
           {activeBook && (
             <TouchableOpacity style={styles.recordBtn} onPress={() => {
-              setDateStr(formatDateTime(new Date()));
+              // Create a date utilizing selectedDate's YYYY-MM-DD but current time HH:mm
+              const now = new Date();
+              const newD = new Date(selectedDate);
+              newD.setHours(now.getHours());
+              newD.setMinutes(now.getMinutes());
+              setDateStr(formatDateTime(newD));
               setModalVisible(true);
             }}>
               <Text style={styles.recordBtnText}>+ 记一笔</Text>
@@ -208,20 +223,31 @@ export const TransactionList = () => {
       {isLoadingBooks ? (
         <ActivityIndicator style={styles.center} color="#3b82f6" />
       ) : books && books.length > 0 ? (
-        <View style={styles.bookSelector}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {books.map(book => (
-              <TouchableOpacity
-                key={book.id}
-                style={[styles.bookTab, selectedBookId === book.id && styles.bookTabActive]}
-                onPress={() => setSelectedBookId(book.id)}
-              >
-                <Text style={[styles.bookTabText, selectedBookId === book.id && styles.bookTabTextActive]}>
-                  {book.name}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+        <View>
+          <View style={styles.bookSelector}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {books.map(book => (
+                <TouchableOpacity
+                  key={book.id}
+                  style={[styles.bookTab, selectedBookId === book.id && styles.bookTabActive]}
+                  onPress={() => setSelectedBookId(book.id)}
+                >
+                  <Text style={[styles.bookTabText, selectedBookId === book.id && styles.bookTabTextActive]}>
+                    {book.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+
+          {transactions && (
+            <CalendarHeatmap 
+              transactions={transactions || []} 
+              basis={heatmapBasis} 
+              selectedDate={selectedDate} 
+              onSelectDate={setSelectedDate} 
+            />
+          )}
         </View>
       ) : (
         <Text style={styles.empty}>请先创建一个账本</Text>
@@ -231,11 +257,11 @@ export const TransactionList = () => {
         <ActivityIndicator style={styles.center} color="#3b82f6" />
       ) : isError ? (
         <Text style={styles.error}>加载账单失败</Text>
-      ) : (!transactions || transactions.length === 0) ? (
-        <Text style={styles.empty}>当前账本暂无金额变动明细</Text>
+      ) : (!filteredTransactions || filteredTransactions.length === 0) ? (
+        <Text style={styles.empty}>选定日期暂无流水明细</Text>
       ) : (
         <FlatList
-          data={transactions}
+          data={filteredTransactions}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           showsVerticalScrollIndicator={false}
