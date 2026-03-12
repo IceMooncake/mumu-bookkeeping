@@ -130,6 +130,11 @@ export const TransactionList = () => {
   };
 
   const handleDeleteBook = (id: string, name: string) => {
+    if ((books?.length || 0) <= 1) {
+      Alert.alert('提示', '至少保留一个账本，无法删除');
+      return;
+    }
+
     Alert.alert('确认删除', `确定删除账本 [${name}] 吗？`, [
       { text: '取消', style: 'cancel' },
       {
@@ -152,11 +157,16 @@ export const TransactionList = () => {
   };
 
   const handleBookLongPress = (book: any) => {
-    Alert.alert(`账本操作: ${book.name}`, '请选择要执行的操作', [
+    const actions: Array<{ text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }> = [
       { text: '重命名', onPress: () => handleRenameBook(book.id, book.name) },
-      { text: '删除', style: 'destructive', onPress: () => handleDeleteBook(book.id, book.name) },
-      { text: '取消', style: 'cancel' },
-    ]);
+    ];
+
+    if ((books?.length || 0) > 1) {
+      actions.push({ text: '删除', style: 'destructive', onPress: () => handleDeleteBook(book.id, book.name) });
+    }
+
+    actions.push({ text: '取消', style: 'cancel' });
+    Alert.alert(`账本操作: ${book.name}`, '请选择要执行的操作', actions);
   };
 
   const handleSubmit = async () => {

@@ -175,7 +175,12 @@ registry.registerPath({
 bookRouter.delete('/:id', async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
-    await prisma.$transaction(async tx => {
+    const deleted = await prisma.$transaction(async tx => {
+      const totalBooks = await tx.book.count();
+      const existing = await tx.book.findUnique({ where: { id } });
+      if (!existing) return { kind: 'not_found' as const };
+      if (totalBooks <= 1) return { kind: 'last_book' as const };
+
       await tx.book.delete({ where: { id } });
       await appendSyncEvent(tx as any, {
         entityType: 'book',
@@ -183,7 +188,19 @@ bookRouter.delete('/:id', async (req: Request, res: Response) => {
         action: 'delete',
         payload: { id },
       });
+      return { kind: 'deleted' as const };
     });
+
+    if (deleted.kind === 'not_found') {
+      res.json({ success: true, notFound: true });
+      return;
+    }
+
+    if (deleted.kind === 'last_book') {
+      res.status(400).json({ error: '至少保留一个账本，无法删除' });
+      return;
+    }
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Delete failed' });
