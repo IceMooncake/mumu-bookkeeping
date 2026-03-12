@@ -1,5 +1,5 @@
 import ivm from 'isolated-vm';
-import { prisma } from '../db';
+import { createTransactionWithBookBalance } from '../services/transactionService';
 
 /**
  * 在受限的 V8 沙箱中运行用户的 JS 代码
@@ -30,15 +30,13 @@ export async function runTaskScript(scriptCode: string): Promise<string> {
   // 使用 ivm.Reference 封装宿主的异步函数
   const createTransactionRef = new ivm.Reference(async (data: any) => {
     // 这里需注意实际应用中我们要对 data 做进一步的安全性/字段校验
-    const transaction = await prisma.transaction.create({
-      data: {
-        amount: Number(data.amount) || 0,
-        type: String(data.type),
-        category: String(data.category),
-        merchant: data.merchant ? String(data.merchant) : null,
-        remark: data.remark ? String(data.remark) : null,
-        payMethod: data.payMethod ? String(data.payMethod) : null,
-      },
+    const transaction = await createTransactionWithBookBalance({
+      amount: Number(data.amount) || 0,
+      type: String(data.type),
+      category: String(data.category),
+      merchant: data.merchant ? String(data.merchant) : null,
+      remark: data.remark ? String(data.remark) : null,
+      payMethod: data.payMethod ? String(data.payMethod) : null,
     });
     return transaction.id;
   });

@@ -41,7 +41,14 @@ async function main() {
   console.log('已清理当前账本下的旧流水记录...');
 
   const today = new Date();
-  const transactions = [];
+  const transactions: Array<{
+    amount: number;
+    type: string;
+    category: string;
+    merchant: string;
+    date: Date;
+    bookId: string;
+  }> = [];
 
   for (let i = 0; i < 30; i++) {
     // 过去30天内的每一天生成 1 到 5 笔交易

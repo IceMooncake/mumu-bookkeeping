@@ -550,6 +550,9 @@
                   "date": {
                     "type": "string",
                     "format": "date-time"
+                  },
+                  "clientOpId": {
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -574,6 +577,32 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/transactions/{id}": {
+      "delete": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "删除一笔账单",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "404": {
+            "description": "账单不存在"
           }
         }
       }
@@ -811,6 +840,101 @@
         "responses": {
           "200": {
             "description": "删除成功"
+          }
+        }
+      }
+    },
+    "/sync/pull": {
+      "get": {
+        "tags": [
+          "Sync"
+        ],
+        "summary": "按游标拉取增量变更",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "nullable": true,
+              "minimum": 0,
+              "default": 0
+            },
+            "required": false,
+            "name": "since",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "增量事件列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "cursor": {
+                            "type": "number"
+                          },
+                          "entityType": {
+                            "type": "string"
+                          },
+                          "entityId": {
+                            "type": "string"
+                          },
+                          "action": {
+                            "type": "string"
+                          },
+                          "payload": {
+                            "type": "object",
+                            "nullable": true,
+                            "additionalProperties": {
+                              "nullable": true
+                            }
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "cursor",
+                          "entityType",
+                          "entityId",
+                          "action",
+                          "payload",
+                          "createdAt"
+                        ]
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "number"
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "events",
+                    "nextCursor",
+                    "hasMore"
+                  ]
+                }
+              }
+            }
           }
         }
       }

@@ -1,14 +1,16 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert, Switch, ScrollView, TextInput, Modal, Platform } from 'react-native';
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import { TransactionList } from './src/components/TransactionList';
 import { TaskList } from './src/components/TaskList';
 import { CategorySettings } from './src/components/CategorySettings';
 import { MumuAccessibilityService } from './src/api/accessibility';
-import { TransactionsService, BooksService } from './src/api/generated';
-import { addTransactionToOfflineQueue, syncOfflineTransactions, startHeartbeat, stopHeartbeat, getOnlineStatus } from './src/api/offlineSync';
+import { BooksService } from './src/api/generated';
+import { addTransactionToOfflineQueue, startHeartbeat, stopHeartbeat, queueBookOperation } from './src/api/offlineSync';
 import { SettingsProvider, useSettings } from './src/contexts/SettingsContext';
+import { CACHE_KEYS } from './src/api/queries';
 
 const queryClient = new QueryClient();
 
@@ -53,6 +55,11 @@ function AccessibilityController({ visible }: { visible?: boolean }) {
         });
       }
     }, () => {
+      queryClient.invalidateQueries({ queryKey: ['category-tags'] });
+    }, () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['books'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['category-tags'] });
     });
 
@@ -184,6 +191,15 @@ function BooksTab() {
   const [promptValue, setPromptValue] = useState('');
   const [promptOnConfirm, setPromptOnConfirm] = useState<((val: string) => void) | null>(null);
 
+  const setBooksAndPersist = (updater: (old: any[]) => any[]) => {
+    let nextBooks: any[] = [];
+    queryClient.setQueryData(['books'], (old: any) => {
+      nextBooks = updater(old || []);
+      return nextBooks;
+    });
+    AsyncStorage.setItem(CACHE_KEYS.BOOKS, JSON.stringify(nextBooks));
+  };
+
   const showPrompt = (title: string, defaultValue: string, onConfirm: (val: string) => void) => {
     setPromptTitle(title);
     setPromptDefaultValue(defaultValue);
@@ -195,8 +211,20 @@ function BooksTab() {
   const handleCreateBook = () => {
     showPrompt('新建账本', '默认账本', async (name: string) => {
       try {
-        await BooksService.postBooks({ name });
-        queryClient.invalidateQueries({ queryKey: ['books'] });
+        const tempId = `temp_book_${Date.now()}`;
+        await queueBookOperation({ action: 'create', targetId: tempId, data: { name } });
+        setBooksAndPersist((bookRows) => [
+          {
+            id: tempId,
+            name,
+            balance: 0,
+            isDefault: bookRows.length === 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isPending: true,
+          },
+          ...bookRows,
+        ]);
         Toast.show({ type: 'success', text1: '创建成功', text2: `账本 [${name}] 已添加` });
       } catch(e: any) {
         Toast.show({ type: 'error', text1: '创建失败', text2: e.message });
@@ -208,8 +236,14 @@ function BooksTab() {
     showPrompt('重命名账本', currentName, async (newName: string) => {
       if (newName !== currentName) {
         try {
-          await BooksService.putBooks(id, { name: newName });
-          queryClient.invalidateQueries({ queryKey: ['books'] });
+          await queueBookOperation({ action: 'update', targetId: id, data: { name: newName } });
+          setBooksAndPersist((bookRows) =>
+            bookRows.map((book: any) =>
+              book.id === id
+                ? { ...book, name: newName, updatedAt: new Date().toISOString(), isPending: true }
+                : book
+            )
+          );
           Toast.show({ type: 'success', text1: '重命名成功', text2: `账本已重命名为 [${newName}]` });
         } catch(e: any) {
           Toast.show({ type: 'error', text1: '重命名失败', text2: e.message });
@@ -230,9 +264,8 @@ function BooksTab() {
           onPress: async () => {
              // @ts-ignore
             try {
-              // @ts-ignore
-              await BooksService.deleteBooks(id);
-              queryClient.invalidateQueries({ queryKey: ['books'] });
+              await queueBookOperation({ action: 'delete', targetId: id });
+              setBooksAndPersist((bookRows) => bookRows.filter((book: any) => book.id !== id));
               Toast.show({ type: 'success', text1: '删除成功', text2: `账本 [${name}] 已删除` });
             } catch (e: any) {
               Toast.show({ type: 'error', text1: '删除失败', text2: e.message });
@@ -245,8 +278,15 @@ function BooksTab() {
 
   const handleSetDefault = async (id: string) => {
     try {
-      await BooksService.putBooks(id, { isDefault: true });
-      queryClient.invalidateQueries({ queryKey: ['books'] });
+      await queueBookOperation({ action: 'update', targetId: id, data: { isDefault: true } });
+      setBooksAndPersist((bookRows) =>
+        bookRows.map((book: any) => ({
+          ...book,
+          isDefault: book.id === id,
+          updatedAt: new Date().toISOString(),
+          isPending: true,
+        }))
+      );
       Toast.show({ type: 'success', text1: '设置成功', text2: `已切换账本` });
     } catch(e: any) {
       Toast.show({ type: 'error', text1: '设置失败', text2: e.message });

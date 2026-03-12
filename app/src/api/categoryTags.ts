@@ -298,6 +298,24 @@ export const pullRemoteCategoriesToLocal = async () => {
   return merged;
 };
 
+export const upsertCategoryTagFromRemote = async (remote: RemoteCategory) => {
+  const localTag = toLocalTagFromRemote(remote);
+  const current = await getLocalTags();
+  const exists = current.find(tag => tag.remoteId === remote.id);
+
+  const next = exists
+    ? current.map(tag => (tag.remoteId === remote.id ? { ...tag, ...localTag } : tag))
+    : [...current, localTag];
+
+  await saveLocalTags(next);
+};
+
+export const deleteCategoryTagFromRemote = async (remoteId: string) => {
+  const current = await getLocalTags();
+  const next = current.filter(tag => tag.remoteId !== remoteId);
+  await saveLocalTags(next);
+};
+
 export const useCategoryTags = (type?: CategoryTagType) => {
   return useQuery({
     queryKey: ['category-tags', type],

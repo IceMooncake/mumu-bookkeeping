@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { registry } from '../openapi';
 import { prisma } from '../db';
+import { createTransactionWithBookBalance, deleteTransactionWithBookBalance } from '../services/transactionService';
 
 export const transactionRouter = Router();
 
@@ -23,7 +24,8 @@ export const TransactionSchema = registry.register(
 );
 
 export const CreateTransactionDto = TransactionSchema.omit({ id: true, createdAt: true, updatedAt: true, date: true }).extend({
-  date: z.string().datetime().optional()
+  date: z.string().datetime().optional(),
+  clientOpId: z.string().optional(),
 });
 
 registry.registerPath({
@@ -76,41 +78,42 @@ registry.registerPath({
 transactionRouter.post('/', async (req: Request, res: Response) => {
   try {
     const data = CreateTransactionDto.parse(req.body);
-    let targetBookId = data.bookId;
-
-    if (!targetBookId) {
-      let defaultBook = await prisma.book.findFirst({ where: { isDefault: true } });
-      if (!defaultBook) {
-        defaultBook = await prisma.book.create({
-          data: { name: '默认账本', balance: 0, isDefault: true }
-        });
-      }
-      targetBookId = defaultBook.id;
-    }
-
-    const tx = await prisma.$transaction(async (txPrisma) => {
-      const newTx = await txPrisma.transaction.create({
-        data: {
-          ...data,
-          bookId: targetBookId,
-          date: data.date ? new Date(data.date) : new Date()
-        }
-      });
-
-      const amountDiff = data.type === 'EXPENSE' ? -data.amount : (data.type === 'INCOME' ? data.amount : 0);
-      
-      if (amountDiff !== 0) {
-        await txPrisma.book.update({
-          where: { id: targetBookId! },
-          data: { balance: { increment: amountDiff } }
-        });
-      }
-
-      return newTx;
-    });
+    const tx = await createTransactionWithBookBalance(data);
 
     res.json(tx);
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Params validate failed' }); 
+  }
+});
+
+registry.registerPath({
+  method: 'delete',
+  path: '/transactions/{id}',
+  tags: ['Transactions'],
+  summary: '删除一笔账单',
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      description: '删除成功',
+    },
+    404: {
+      description: '账单不存在',
+    },
+  },
+});
+
+transactionRouter.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const deleted = await deleteTransactionWithBookBalance(id);
+    if (!deleted) {
+      res.status(404).json({ error: 'Transaction not found' });
+      return;
+    }
+    res.json({ success: true, id: deleted.id });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Delete failed' });
   }
 });

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { registry } from '../openapi';
 import { prisma } from '../db';
+import { appendSyncEvent } from '../services/syncEvent';
 
 export const categoryRouter = Router();
 
@@ -73,31 +74,42 @@ categoryRouter.post('/', async (req: Request, res: Response) => {
     const bgColor = data.bgColor || data.color || '#E5E7EB';
     const textColor = data.textColor || '#111827';
 
-    const found = await (prisma as any).category.findFirst({
-      where: {
-        name: data.name,
-        type: data.type,
-      },
-    });
+    const category = await prisma.$transaction(async tx => {
+      const found = await (tx as any).category.findFirst({
+        where: {
+          name: data.name,
+          type: data.type,
+        },
+      });
 
-    const category = found
-      ? await (prisma as any).category.update({
-          where: { id: found.id },
-          data: {
-            color: bgColor,
-            bgColor,
-            textColor,
-          },
-        })
-      : await (prisma as any).category.create({
-          data: {
-            name: data.name,
-            type: data.type,
-            color: bgColor,
-            bgColor,
-            textColor,
-          },
-        });
+      const nextCategory = found
+        ? await (tx as any).category.update({
+            where: { id: found.id },
+            data: {
+              color: bgColor,
+              bgColor,
+              textColor,
+            },
+          })
+        : await (tx as any).category.create({
+            data: {
+              name: data.name,
+              type: data.type,
+              color: bgColor,
+              bgColor,
+              textColor,
+            },
+          });
+
+      await appendSyncEvent(tx as any, {
+        entityType: 'category',
+        entityId: nextCategory.id,
+        action: found ? 'update' : 'create',
+        payload: nextCategory,
+      });
+
+      return nextCategory;
+    });
 
     res.json(category);
   } catch (error: any) {
@@ -123,7 +135,15 @@ registry.registerPath({
 categoryRouter.delete('/:id', async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
-    await (prisma as any).category.delete({ where: { id } });
+    await prisma.$transaction(async tx => {
+      await (tx as any).category.delete({ where: { id } });
+      await appendSyncEvent(tx as any, {
+        entityType: 'category',
+        entityId: id,
+        action: 'delete',
+        payload: { id },
+      });
+    });
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error?.message || 'Delete failed' });

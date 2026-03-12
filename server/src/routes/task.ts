@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { registry } from '../openapi';
 import { prisma } from '../db';
 import { runTaskScript } from '../sandbox/runner';
+import { appendSyncEvent } from '../services/syncEvent';
 
 export const taskRouter = Router();
 
@@ -45,7 +46,16 @@ registry.registerPath({
 
 taskRouter.post('/', async (req: Request, res: Response) => {
   const data = CreateTaskDto.parse(req.body);
-  const task = await prisma.jsTask.create({ data });
+  const task = await prisma.$transaction(async tx => {
+    const created = await tx.jsTask.create({ data });
+    await appendSyncEvent(tx as any, {
+      entityType: 'task',
+      entityId: created.id,
+      action: 'create',
+      payload: created,
+    });
+    return created;
+  });
   res.json(task);
 });
 
@@ -127,9 +137,18 @@ taskRouter.put('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const id = String(req.params.id);
     const data = UpdateTaskDto.parse(req.body);
-    const updated = await prisma.jsTask.update({
-      where: { id },
-      data,
+    const updated = await prisma.$transaction(async tx => {
+      const row = await tx.jsTask.update({
+        where: { id },
+        data,
+      });
+      await appendSyncEvent(tx as any, {
+        entityType: 'task',
+        entityId: row.id,
+        action: 'update',
+        payload: row,
+      });
+      return row;
     });
     res.json(updated);
   } catch (err: any) {
@@ -155,8 +174,16 @@ registry.registerPath({
 taskRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
     const id = String(req.params.id);
-    await prisma.jsTask.delete({
-      where: { id },
+    await prisma.$transaction(async tx => {
+      await tx.jsTask.delete({
+        where: { id },
+      });
+      await appendSyncEvent(tx as any, {
+        entityType: 'task',
+        entityId: id,
+        action: 'delete',
+        payload: { id },
+      });
     });
     res.status(204).send();
   } catch (err: any) {

@@ -5,6 +5,7 @@ import { taskRouter } from './routes/task';
 import { transactionRouter } from './routes/transaction';
 import { bookRouter } from './routes/book';
 import { categoryRouter } from './routes/category';
+import { syncRouter } from './routes/sync';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 import { prisma } from './db';
@@ -22,6 +23,7 @@ app.use('/api/tasks', taskRouter);
 app.use('/api/transactions', transactionRouter);
 app.use('/api/books', bookRouter);
 app.use('/api/categories', categoryRouter);
+app.use('/api/sync', syncRouter);
 
 // 心跳接口，用于客户端进行网络探活
 app.get('/api/health', (req, res) => {

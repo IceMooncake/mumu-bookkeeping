@@ -4,12 +4,12 @@ import { TransactionsService, TasksService, BooksService } from './generated';
 import type { Transaction } from './generated/models/Transaction';
 import type { Task } from './generated/models/Task';
 import type { Book } from './generated/models/Book';
-import { getOnlineStatus, getOfflineQueue, addTransactionToOfflineQueue } from './offlineSync';
+import { getOnlineStatus, getOfflineQueue, addTransactionToOfflineQueue, queueTaskOperation } from './offlineSync';
 
 // We export the generated interfaces for components
 export type { Transaction, Task, Book };
 
-const CACHE_KEYS = {
+export const CACHE_KEYS = {
   TRANSACTIONS: '@cache_transactions',
   TASKS: '@cache_tasks',
   BOOKS: '@cache_books',
@@ -31,16 +31,17 @@ export const useBooks = () => {
   return useQuery({
     queryKey: ['books'],
     queryFn: async () => {
+      const cached = await AsyncStorage.getItem(CACHE_KEYS.BOOKS);
+      if (cached) {
+        return JSON.parse(cached) as Book[];
+      }
+
       try {
         if (!getOnlineStatus()) throw new Error('Offline mode active');
         const data = await withTimeout(BooksService.getBooks(), 3000);
         await AsyncStorage.setItem(CACHE_KEYS.BOOKS, JSON.stringify(data));
         return data;
-      } catch (error) {
-        const cached = await AsyncStorage.getItem(CACHE_KEYS.BOOKS);
-        if (cached) {
-          return JSON.parse(cached) as Book[];
-        }
+      } catch {
         return [];
       }
     },
@@ -54,14 +55,16 @@ export const useTransactions = (bookId?: string) => {
     queryFn: async () => {
       const cacheId = `${CACHE_KEYS.TRANSACTIONS}_${bookId || 'all'}`;
       let serverData: Transaction[] = [];
-      try {
-        if (!getOnlineStatus()) throw new Error('Offline mode active');
-        serverData = await withTimeout(TransactionsService.getTransactions(bookId), 5000);
-        await AsyncStorage.setItem(cacheId, JSON.stringify(serverData));
-      } catch (error) {
-        const cached = await AsyncStorage.getItem(cacheId);
-        if (cached) {
-          serverData = JSON.parse(cached) as Transaction[];
+      const cached = await AsyncStorage.getItem(cacheId);
+      if (cached) {
+        serverData = JSON.parse(cached) as Transaction[];
+      } else {
+        try {
+          if (!getOnlineStatus()) throw new Error('Offline mode active');
+          serverData = await withTimeout(TransactionsService.getTransactions(bookId), 5000);
+          await AsyncStorage.setItem(cacheId, JSON.stringify(serverData));
+        } catch {
+          serverData = [];
         }
       }
       
@@ -122,16 +125,17 @@ export const useTasks = () => {
   return useQuery({
     queryKey: ['tasks'],
     queryFn: async () => {
+      const cached = await AsyncStorage.getItem(CACHE_KEYS.TASKS);
+      if (cached) {
+        return JSON.parse(cached) as Task[];
+      }
+
       try {
         if (!getOnlineStatus()) throw new Error('Offline mode active');
         const data = await withTimeout(TasksService.getTasks(), 4000);
         await AsyncStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(data));
         return data;
-      } catch (error) {
-        const cached = await AsyncStorage.getItem(CACHE_KEYS.TASKS);
-        if (cached) {
-          return JSON.parse(cached) as Task[];
-        }
+      } catch {
         return [];
       }
     },
@@ -143,23 +147,36 @@ export const useCreateTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (taskData: Parameters<typeof TasksService.postTasks>[0]) => {
-      if (!getOnlineStatus()) {
-        const fakeData = { ...taskData, id: 'temp_' + Date.now() };
-        return fakeData as any;
-      }
-      return TasksService.postTasks(taskData);
+      const tempId = 'temp_' + Date.now();
+      await queueTaskOperation({
+        action: 'create',
+        targetId: tempId,
+        data: taskData,
+      });
+      return { ...taskData, id: tempId } as any;
     },
     onMutate: async (newTask) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] });
       const previousTasks = queryClient.getQueryData(['tasks']);
-      queryClient.setQueryData(['tasks'], (old: any) => [
-        { ...newTask, id: 'temp_' + Date.now(), isPending: true },
-        ...(old || [])
-      ]);
+      const optimisticId = (newTask as any)?.id || ('temp_' + Date.now());
+      let nextTasks: any[] = [];
+      queryClient.setQueryData(['tasks'], (old: any) => {
+        nextTasks = [
+          { ...newTask, id: optimisticId, isPending: true },
+          ...(old || []),
+        ];
+        return nextTasks;
+      });
+      await AsyncStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(nextTasks));
       return { previousTasks };
     },
-    onError: (err, newTask, context: any) => {
+    onError: async (_err, _newTask, context: any) => {
       queryClient.setQueryData(['tasks'], context?.previousTasks);
+      try {
+        await AsyncStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(context?.previousTasks || []));
+      } catch {
+        // ignore cache rollback write failure
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -171,21 +188,31 @@ export const useUpdateTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Parameters<typeof TasksService.putTasks>[1] }) => {
-      if (!getOnlineStatus()) {
-        return { ...data, id } as any;
-      }
-      return TasksService.putTasks(id, data);
+      await queueTaskOperation({
+        action: 'update',
+        targetId: id,
+        data,
+      });
+      return { ...data, id } as any;
     },
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ['tasks'] });
       const previousTasks = queryClient.getQueryData(['tasks']);
-      queryClient.setQueryData(['tasks'], (old: any) => 
-        (old || []).map((t: any) => t.id === id ? { ...t, ...data, isPending: true } : t)
-      );
+      let nextTasks: any[] = [];
+      queryClient.setQueryData(['tasks'], (old: any) => {
+        nextTasks = (old || []).map((t: any) => t.id === id ? { ...t, ...data, isPending: true } : t);
+        return nextTasks;
+      });
+      await AsyncStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(nextTasks));
       return { previousTasks };
     },
-    onError: (err, newTodo, context: any) => {
+    onError: async (_err, _newTodo, context: any) => {
       queryClient.setQueryData(['tasks'], context?.previousTasks);
+      try {
+        await AsyncStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(context?.previousTasks || []));
+      } catch {
+        // ignore cache rollback write failure
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
@@ -196,10 +223,29 @@ export const useUpdateTask = () => {
 export const useDeleteTask = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => {
-      return TasksService.deleteTasks(id);
+    mutationFn: async (id: string) => {
+      await queueTaskOperation({
+        action: 'delete',
+        targetId: id,
+      });
+      return { success: true };
     },
-    onSuccess: () => {
+    onMutate: async (id: string) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks'] });
+      const previousTasks = queryClient.getQueryData(['tasks']);
+      let nextTasks: any[] = [];
+      queryClient.setQueryData(['tasks'], (old: any) => {
+        nextTasks = (old || []).filter((t: any) => t.id !== id);
+        return nextTasks;
+      });
+      await AsyncStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(nextTasks));
+      return { previousTasks };
+    },
+    onError: (_err, _id, context: any) => {
+      queryClient.setQueryData(['tasks'], context?.previousTasks);
+      AsyncStorage.setItem(CACHE_KEYS.TASKS, JSON.stringify(context?.previousTasks || []));
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
     },
   });

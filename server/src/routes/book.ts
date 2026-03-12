@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { registry } from '../openapi';
 import { prisma } from '../db';
+import { appendSyncEvent } from '../services/syncEvent';
 
 export const bookRouter = Router();
 
@@ -63,13 +64,22 @@ registry.registerPath({
 bookRouter.post('/', async (req: Request, res: Response) => {
   try {
     const data = CreateBookDto.parse(req.body);
-    const existingDefault = await prisma.book.findFirst({ where: { isDefault: true } });
-    const book = await prisma.book.create({
-      data: {
-        name: data.name,
-        balance: data.balance || 0,
-        isDefault: !existingDefault
-      }
+    const book = await prisma.$transaction(async tx => {
+      const existingDefault = await tx.book.findFirst({ where: { isDefault: true } });
+      const created = await tx.book.create({
+        data: {
+          name: data.name,
+          balance: data.balance || 0,
+          isDefault: !existingDefault,
+        },
+      });
+      await appendSyncEvent(tx as any, {
+        entityType: 'book',
+        entityId: created.id,
+        action: 'create',
+        payload: created,
+      });
+      return created;
     });
     res.json(book);
   } catch (error: any) {
@@ -108,21 +118,36 @@ bookRouter.put('/:id', async (req: Request, res: Response): Promise<void> => {
 
     let updatedBook;
     if (data.isDefault) {
-      await prisma.$transaction([
-        prisma.book.updateMany({
+      updatedBook = await prisma.$transaction(async tx => {
+        await tx.book.updateMany({
           where: { isDefault: true, id: { not: id } },
-          data: { isDefault: false }
-        }),
-        prisma.book.update({
+          data: { isDefault: false },
+        });
+        const updated = await tx.book.update({
           where: { id },
-          data
-        })
-      ]);
-      updatedBook = await prisma.book.findUnique({ where: { id } });
+          data,
+        });
+        await appendSyncEvent(tx as any, {
+          entityType: 'book',
+          entityId: updated.id,
+          action: 'update',
+          payload: updated,
+        });
+        return updated;
+      });
     } else {
-      updatedBook = await prisma.book.update({
-        where: { id },
-        data
+      updatedBook = await prisma.$transaction(async tx => {
+        const updated = await tx.book.update({
+          where: { id },
+          data,
+        });
+        await appendSyncEvent(tx as any, {
+          entityType: 'book',
+          entityId: updated.id,
+          action: 'update',
+          payload: updated,
+        });
+        return updated;
       });
     }
 
@@ -150,7 +175,15 @@ registry.registerPath({
 bookRouter.delete('/:id', async (req: Request, res: Response) => {
   try {
     const id = req.params.id as string;
-    await prisma.book.delete({ where: { id } });
+    await prisma.$transaction(async tx => {
+      await tx.book.delete({ where: { id } });
+      await appendSyncEvent(tx as any, {
+        entityType: 'book',
+        entityId: id,
+        action: 'delete',
+        payload: { id },
+      });
+    });
     res.json({ success: true });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Delete failed' });

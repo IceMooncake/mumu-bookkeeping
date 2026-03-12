@@ -19,6 +19,7 @@ model Book {
 
 model Transaction {
   id        String   @id @default(uuid())
+  clientOpId String? @unique
   amount    Float
   type      String
   category  String
@@ -30,6 +31,17 @@ model Transaction {
   book      Book?    @relation(fields: [bookId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model SyncEvent {
+  id         Int      @id @default(autoincrement())
+  entityType String
+  entityId   String
+  action     String
+  payload    String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, createdAt])
 }
 
 model Category {
