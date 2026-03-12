@@ -88,20 +88,28 @@ export const useCreateTransaction = () => {
     },
     onMutate: async (newTx: any) => {
       await queryClient.cancelQueries({ queryKey: ['transactions'] });
-      const previousTxs = queryClient.getQueryData(['transactions']);
-      queryClient.setQueryData(['transactions'], (old: any) => {
-        // Because cache key could be ['transactions', undefined] or ['transactions', bookId]
-        // The invalidation handles it, but optimistic update is tricky. We'll update the 'all' key or the one matching newTx.bookId
+      
+      const queryKeyAll = ['transactions', undefined];
+      const queryKeyBook = ['transactions', newTx.bookId];
+      
+      const previousTxsAll = queryClient.getQueryData(queryKeyAll);
+      const previousTxsBook = queryClient.getQueryData(queryKeyBook);
+
+      const updater = (old: any) => {
         return [
           { ...newTx, id: 'temp_' + Date.now(), isPending: true },
           ...(old || [])
         ];
-      });
-      return { previousTxs };
+      };
+
+      if (previousTxsAll) queryClient.setQueryData(queryKeyAll, updater);
+      queryClient.setQueryData(queryKeyBook, updater);
+
+      return { previousTxsAll, previousTxsBook, queryKeyAll, queryKeyBook };
     },
-    onError: (err, newTx, context: any) => {
-      // In case of error revert
-      queryClient.setQueryData(['transactions'], context?.previousTxs);
+    onError: (_err, _newTx, context: any) => {
+      if (context?.previousTxsAll) queryClient.setQueryData(context.queryKeyAll, context.previousTxsAll);
+      if (context?.previousTxsBook) queryClient.setQueryData(context.queryKeyBook, context.previousTxsBook);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
