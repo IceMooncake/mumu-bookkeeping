@@ -1,9 +1,13 @@
 ﻿import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQueryClient } from '@tanstack/react-query';
 import { useTransactions, useBooks, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, Transaction } from '../api/queries';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { useSettings } from '../contexts/SettingsContext';
 import { useCategoryTags } from '../api/categoryTags';
+import { queueBookOperation } from '../api/offlineSync';
+import { CACHE_KEYS } from '../api/queries';
 
 const formatDateTime = (date: Date) => {
   const pad = (n: number) => n.toString().padStart(2, '0');
@@ -23,7 +27,12 @@ export const TransactionList = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
+  const [bookPromptVisible, setBookPromptVisible] = useState(false);
+  const [bookPromptTitle, setBookPromptTitle] = useState('');
+  const [bookPromptValue, setBookPromptValue] = useState('');
+  const [bookPromptOnConfirm, setBookPromptOnConfirm] = useState<((val: string) => void) | null>(null);
 
+  const queryClient = useQueryClient();
   const { data: books, isLoading: isLoadingBooks } = useBooks();
   const { data: transactions, isLoading: isLoadingTxs, isError } = useTransactions(selectedBookId);
   const { heatmapBasis } = useSettings();
@@ -59,6 +68,96 @@ export const TransactionList = () => {
   }, [books, selectedBookId]);
 
   const activeBook = books?.find(b => b.id === selectedBookId);
+
+  const setBooksAndPersist = async (updater: (old: any[]) => any[]) => {
+    let nextBooks: any[] = [];
+    queryClient.setQueryData(['books'], (old: any) => {
+      nextBooks = updater(old || []);
+      return nextBooks;
+    });
+    await AsyncStorage.setItem(CACHE_KEYS.BOOKS, JSON.stringify(nextBooks));
+    return nextBooks;
+  };
+
+  const showBookPrompt = (title: string, defaultValue: string, onConfirm: (val: string) => void) => {
+    setBookPromptTitle(title);
+    setBookPromptValue(defaultValue);
+    setBookPromptOnConfirm(() => onConfirm);
+    setBookPromptVisible(true);
+  };
+
+  const handleCreateBook = () => {
+    showBookPrompt('新建账本', '默认账本', async (name) => {
+      const cleanName = name.trim();
+      if (!cleanName) return;
+      try {
+        const tempId = `temp_book_${Date.now()}`;
+        await queueBookOperation({ action: 'create', targetId: tempId, data: { name: cleanName } });
+        await setBooksAndPersist(old => [
+          {
+            id: tempId,
+            name: cleanName,
+            balance: 0,
+            isDefault: old.length === 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            isPending: true,
+          },
+          ...old,
+        ]);
+        setSelectedBookId(tempId);
+      } catch (error: any) {
+        Alert.alert('创建失败', error?.message || '请稍后重试');
+      }
+    });
+  };
+
+  const handleRenameBook = (id: string, currentName: string) => {
+    showBookPrompt('重命名账本', currentName, async (name) => {
+      const cleanName = name.trim();
+      if (!cleanName || cleanName === currentName) return;
+      try {
+        await queueBookOperation({ action: 'update', targetId: id, data: { name: cleanName } });
+        await setBooksAndPersist(old =>
+          old.map((book: any) =>
+            book.id === id ? { ...book, name: cleanName, updatedAt: new Date().toISOString(), isPending: true } : book
+          )
+        );
+      } catch (error: any) {
+        Alert.alert('重命名失败', error?.message || '请稍后重试');
+      }
+    });
+  };
+
+  const handleDeleteBook = (id: string, name: string) => {
+    Alert.alert('确认删除', `确定删除账本 [${name}] 吗？`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '删除',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await queueBookOperation({ action: 'delete', targetId: id });
+            const nextBooks = await setBooksAndPersist(old => old.filter((book: any) => book.id !== id));
+            if (selectedBookId === id) {
+              const fallback = nextBooks.find((book: any) => book.isDefault) || nextBooks[0];
+              setSelectedBookId(fallback?.id);
+            }
+          } catch (error: any) {
+            Alert.alert('删除失败', error?.message || '请稍后重试');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleBookLongPress = (book: any) => {
+    Alert.alert(`账本操作: ${book.name}`, '请选择要执行的操作', [
+      { text: '重命名', onPress: () => handleRenameBook(book.id, book.name) },
+      { text: '删除', style: 'destructive', onPress: () => handleDeleteBook(book.id, book.name) },
+      { text: '取消', style: 'cancel' },
+    ]);
+  };
 
   const handleSubmit = async () => {
     if (!amount || isNaN(Number(amount))) {
@@ -146,7 +245,7 @@ export const TransactionList = () => {
               </View>
             ) : null}
           </View>
-          <Text style={[styles.amount, { color: isExpense ? '#ef4444' : '#10b981' }]}>
+          <Text style={[styles.amount, isExpense ? styles.amountExpense : styles.amountIncome]}>
             {amountStr}
           </Text>
         </View>
@@ -201,7 +300,12 @@ export const TransactionList = () => {
         <Text style={styles.title}>账本流水</Text>
         <View style={styles.headerRight}>
           {activeBook && (
-            <Text style={[styles.balanceText, { color: (activeBook.balance || 0) < 0 ? '#ef4444' : '#10b981' }]}>
+            <Text
+              style={[
+                styles.balanceText,
+                (activeBook.balance || 0) < 0 ? styles.balanceNegative : styles.balancePositive,
+              ]}
+            >
               结余: ￥{(activeBook.balance || 0).toFixed(2)}
             </Text>
           )}
@@ -275,9 +379,9 @@ export const TransactionList = () => {
                         onPress={() => setCategory(tag.name)}
                         style={[
                           styles.selectTag,
+                          isActive ? styles.selectTagActiveBorder : styles.selectTagInactiveBorder,
                           {
                             backgroundColor: tag.bgColor,
-                            borderColor: isActive ? '#111827' : 'transparent',
                             transform: [{ scale: isActive ? 1.04 : 1 }],
                           },
                         ]}
@@ -324,13 +428,14 @@ export const TransactionList = () => {
         <ActivityIndicator style={styles.center} color="#3b82f6" />
       ) : books && books.length > 0 ? (
         <View>
-          <View style={styles.bookSelector}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.bookSelectorRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bookSelectorScroll}>
               {books.map(book => (
                 <TouchableOpacity
                   key={book.id}
                   style={[styles.bookTab, selectedBookId === book.id && styles.bookTabActive]}
                   onPress={() => setSelectedBookId(book.id)}
+                  onLongPress={() => handleBookLongPress(book)}
                 >
                   <Text style={[styles.bookTabText, selectedBookId === book.id && styles.bookTabTextActive]}>
                     {book.name}
@@ -338,6 +443,9 @@ export const TransactionList = () => {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+            <TouchableOpacity style={styles.addBookMiniBtn} onPress={handleCreateBook}>
+              <Text style={styles.addBookMiniBtnText}>+</Text>
+            </TouchableOpacity>
           </View>
 
           {transactions && (
@@ -385,6 +493,37 @@ export const TransactionList = () => {
           <Text style={styles.floatingBtnText}>+</Text>
         </TouchableOpacity>
       )}
+
+      <Modal visible={bookPromptVisible} transparent animationType="fade" onRequestClose={() => setBookPromptVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{bookPromptTitle}</Text>
+            <TextInput
+              style={styles.input}
+              value={bookPromptValue}
+              onChangeText={setBookPromptValue}
+              placeholder="请输入账本名称"
+              autoFocus
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={[styles.btn, styles.cancelBtn]} onPress={() => setBookPromptVisible(false)}>
+                <Text style={styles.cancelBtnText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btn, styles.submitBtn]}
+                onPress={() => {
+                  setBookPromptVisible(false);
+                  if (bookPromptOnConfirm) {
+                    bookPromptOnConfirm(bookPromptValue);
+                  }
+                }}
+              >
+                <Text style={styles.submitBtnText}>确定</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -414,6 +553,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginRight: 10,
+  },
+  addBookMiniBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#8b5cf6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addBookMiniBtnText: {
+    color: '#fff',
+    fontSize: 18,
+    lineHeight: 20,
+    fontWeight: '700',
   },
   recordBtn: {
     backgroundColor: '#3b82f6',
@@ -448,8 +601,13 @@ const styles = StyleSheet.create({
     fontWeight: '300',
     lineHeight: 36,
   },
-  bookSelector: {
+  bookSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 12,
+  },
+  bookSelectorScroll: {
+    flex: 1,
   },
   bookTab: {
     paddingHorizontal: 16,
@@ -527,6 +685,12 @@ const styles = StyleSheet.create({
   amount: {
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  amountExpense: {
+    color: '#ef4444',
+  },
+  amountIncome: {
+    color: '#10b981',
   },
   merchantTag: {
     borderRadius: 999,
@@ -637,6 +801,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderWidth: 1.5,
   },
+  selectTagActiveBorder: {
+    borderColor: '#111827',
+  },
+  selectTagInactiveBorder: {
+    borderColor: 'transparent',
+  },
   selectTagText: {
     fontSize: 13,
     fontWeight: '700',
@@ -672,6 +842,12 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  balanceNegative: {
+    color: '#ef4444',
+  },
+  balancePositive: {
+    color: '#10b981',
   },
   btnDisabled: {
     opacity: 0.7,

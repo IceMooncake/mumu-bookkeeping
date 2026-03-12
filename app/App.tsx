@@ -1,23 +1,19 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert, Switch, ScrollView, TextInput, Modal, Platform } from 'react-native';
-import { QueryClient, QueryClientProvider, useMutation, useQuery } from '@tanstack/react-query';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Switch, ScrollView, Platform } from 'react-native';
+import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
 import { TransactionList } from './src/components/TransactionList';
 import { TaskList } from './src/components/TaskList';
 import { CategorySettings } from './src/components/CategorySettings';
 import { MumuAccessibilityService } from './src/api/accessibility';
-import { BooksService } from './src/api/generated';
-import { addTransactionToOfflineQueue, startHeartbeat, stopHeartbeat, queueBookOperation } from './src/api/offlineSync';
+import { addTransactionToOfflineQueue, startHeartbeat, stopHeartbeat } from './src/api/offlineSync';
 import { SettingsProvider, useSettings } from './src/contexts/SettingsContext';
-import { CACHE_KEYS } from './src/api/queries';
 
 const queryClient = new QueryClient();
 
 function AccessibilityController({ visible }: { visible?: boolean }) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
-  const [, setSyncing] = useState(false);
 
   // 心跳机制与离线同步机制
   useEffect(() => {
@@ -82,14 +78,14 @@ function AccessibilityController({ visible }: { visible?: boolean }) {
       ]);
       return { previousTxs };
     },
-    onError: (err, newTx, context: any) => {
+    onError: (_err, _newTx, context: any) => {
       queryClient.setQueryData(['transactions'], context?.previousTxs);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
       queryClient.invalidateQueries({ queryKey: ['books'] });
     },
-    onSuccess: (res: any) => {
+    onSuccess: (_res: any) => {
       Toast.show({
         type: 'success',
         text1: '自动记账成功',
@@ -179,190 +175,6 @@ function AccessibilityController({ visible }: { visible?: boolean }) {
   );
 }
 
-function BooksTab() {
-  const { data: books } = useQuery({
-    queryKey: ['books'],
-    queryFn: () => BooksService.getBooks()
-  });
-
-  const [promptVisible, setPromptVisible] = useState(false);
-  const [promptTitle, setPromptTitle] = useState('');
-  const [promptDefaultValue, setPromptDefaultValue] = useState('');
-  const [promptValue, setPromptValue] = useState('');
-  const [promptOnConfirm, setPromptOnConfirm] = useState<((val: string) => void) | null>(null);
-
-  const setBooksAndPersist = (updater: (old: any[]) => any[]) => {
-    let nextBooks: any[] = [];
-    queryClient.setQueryData(['books'], (old: any) => {
-      nextBooks = updater(old || []);
-      return nextBooks;
-    });
-    AsyncStorage.setItem(CACHE_KEYS.BOOKS, JSON.stringify(nextBooks));
-  };
-
-  const showPrompt = (title: string, defaultValue: string, onConfirm: (val: string) => void) => {
-    setPromptTitle(title);
-    setPromptDefaultValue(defaultValue);
-    setPromptValue(defaultValue);
-    setPromptOnConfirm(() => onConfirm);
-    setPromptVisible(true);
-  };
-
-  const handleCreateBook = () => {
-    showPrompt('新建账本', '默认账本', async (name: string) => {
-      try {
-        const tempId = `temp_book_${Date.now()}`;
-        await queueBookOperation({ action: 'create', targetId: tempId, data: { name } });
-        setBooksAndPersist((bookRows) => [
-          {
-            id: tempId,
-            name,
-            balance: 0,
-            isDefault: bookRows.length === 0,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            isPending: true,
-          },
-          ...bookRows,
-        ]);
-        Toast.show({ type: 'success', text1: '创建成功', text2: `账本 [${name}] 已添加` });
-      } catch(e: any) {
-        Toast.show({ type: 'error', text1: '创建失败', text2: e.message });
-      }
-    });
-  };
-
-  const handleRenameBook = (id: string, currentName: string) => {
-    showPrompt('重命名账本', currentName, async (newName: string) => {
-      if (newName !== currentName) {
-        try {
-          await queueBookOperation({ action: 'update', targetId: id, data: { name: newName } });
-          setBooksAndPersist((bookRows) =>
-            bookRows.map((book: any) =>
-              book.id === id
-                ? { ...book, name: newName, updatedAt: new Date().toISOString(), isPending: true }
-                : book
-            )
-          );
-          Toast.show({ type: 'success', text1: '重命名成功', text2: `账本已重命名为 [${newName}]` });
-        } catch(e: any) {
-          Toast.show({ type: 'error', text1: '重命名失败', text2: e.message });
-        }
-      }
-    });
-  };
-
-  const handleDeleteBook = (id: string, name: string) => {
-    Alert.alert(
-      '确认删除',
-      `确定要删除账本 [${name}] 吗？此操作不可逆！`,
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '删除',
-          style: 'destructive',
-          onPress: async () => {
-             // @ts-ignore
-            try {
-              await queueBookOperation({ action: 'delete', targetId: id });
-              setBooksAndPersist((bookRows) => bookRows.filter((book: any) => book.id !== id));
-              Toast.show({ type: 'success', text1: '删除成功', text2: `账本 [${name}] 已删除` });
-            } catch (e: any) {
-              Toast.show({ type: 'error', text1: '删除失败', text2: e.message });
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleSetDefault = async (id: string) => {
-    try {
-      await queueBookOperation({ action: 'update', targetId: id, data: { isDefault: true } });
-      setBooksAndPersist((bookRows) =>
-        bookRows.map((book: any) => ({
-          ...book,
-          isDefault: book.id === id,
-          updatedAt: new Date().toISOString(),
-          isPending: true,
-        }))
-      );
-      Toast.show({ type: 'success', text1: '设置成功', text2: `已切换账本` });
-    } catch(e: any) {
-      Toast.show({ type: 'error', text1: '设置失败', text2: e.message });
-    }
-  };
-
-  return (
-    <View style={styles.booksWrapper}>
-      <View style={styles.booksHeader}>
-        <Text style={styles.booksTitle}>账本管理</Text>
-        <TouchableOpacity style={styles.addBookBtn} onPress={handleCreateBook}>
-          <Text style={styles.addBookBtnText}>新增</Text>
-        </TouchableOpacity>
-      </View>
-      <ScrollView style={styles.booksList}>
-        {books?.map((book: any) => (
-          <TouchableOpacity 
-            key={book.id} 
-            style={[styles.bookItem, book.isDefault && styles.bookItemActive]}
-            onPress={() => !book.isDefault && handleSetDefault(book.id)}
-            onLongPress={() => handleRenameBook(book.id, book.name)}
-          >
-            <View>
-              <Text style={[styles.bookName, book.isDefault && styles.bookNameActive]}>
-                {book.name} {book.isDefault ? '(当前使用)' : ''}
-              </Text>
-              <Text style={styles.bookBalance}>余额: ¥{book.balance}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <TouchableOpacity onPress={() => handleRenameBook(book.id, book.name)} style={{ marginRight: 12 }}>
-                <Text style={styles.renameText}>重命名</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDeleteBook(book.id, book.name)}>
-                <Text style={[styles.renameText, { color: '#ef4444' }]}>删除</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        ))}
-        { /* Bottom padding to prevent last item being cut off */ }
-        <View style={{ height: 40 }} />
-      </ScrollView>
-
-      <Modal visible={promptVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>{promptTitle}</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={promptValue}
-              onChangeText={setPromptValue}
-              placeholder="请输入"
-              autoFocus
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalBtn} onPress={() => setPromptVisible(false)}>
-                <Text style={styles.modalBtnText}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.modalBtn, { borderLeftWidth: 1, borderColor: '#e5e7eb' }]} 
-                onPress={() => {
-                  setPromptVisible(false);
-                  if (promptValue && promptOnConfirm) {
-                    promptOnConfirm(promptValue);
-                  }
-                }}
-              >
-                <Text style={[styles.modalBtnText, { color: '#3b82f6', fontWeight: 'bold' }]}>确定</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
-}
-
 function SettingsTab() {
   const { heatmapBasis, setHeatmapBasis } = useSettings();
 
@@ -402,7 +214,7 @@ function SettingsTab() {
 }
 
 function App(): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<'transactions' | 'sandbox' | 'books' | 'settings'>('transactions');
+  const [activeTab, setActiveTab] = useState<'transactions' | 'sandbox' | 'settings'>('transactions');
 
   return (
     <SettingsProvider>
@@ -426,12 +238,6 @@ function App(): React.JSX.Element {
             </View>
           )}
 
-          {activeTab === 'books' && (
-            <View style={[styles.section, styles.borderTop]}>
-              <BooksTab />
-            </View>
-          )}
-
           {activeTab === 'settings' && (
             <SettingsTab />
           )}
@@ -450,12 +256,6 @@ function App(): React.JSX.Element {
             onPress={() => setActiveTab('sandbox')}
           >
             <Text style={[styles.tabText, activeTab === 'sandbox' && styles.tabTextActive]}>沙箱</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.tabItem} 
-            onPress={() => setActiveTab('books')}
-          >
-            <Text style={[styles.tabText, activeTab === 'books' && styles.tabTextActive]}>账本</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.tabItem} 
