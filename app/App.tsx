@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState } from 'react';
-import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert, Switch, ScrollView, TextInput, Modal } from 'react-native';
+import { SafeAreaView, StatusBar, StyleSheet, View, Text, TouchableOpacity, Alert, Switch, ScrollView, TextInput, Modal, Platform } from 'react-native';
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
 import { TransactionList } from './src/components/TransactionList';
@@ -428,6 +428,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f3f4f6',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   content: {
     flex: 1,
