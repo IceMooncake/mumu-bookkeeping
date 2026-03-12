@@ -56,6 +56,33 @@ const writeJsonArray = async <T>(key: string, items: T[]) => {
   await AsyncStorage.setItem(key, JSON.stringify(items));
 };
 
+const replaceTempBookInCache = async (tempBookId: string, createdBook: any) => {
+  if (!tempBookId || !createdBook?.id) return;
+
+  const rows = await readJsonArray<any>(CACHE_KEYS.BOOKS);
+  const next = (rows || []).map((book: any) => {
+    if (book?.id !== tempBookId) return book;
+    return {
+      ...book,
+      ...createdBook,
+      id: createdBook.id,
+      isPending: false,
+    };
+  });
+
+  // Defensive dedupe: if pull/create event already wrote the real id, keep one.
+  const seen = new Set<string>();
+  const deduped: any[] = [];
+  for (const book of next) {
+    const id = book?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    deduped.push(book);
+  }
+
+  await writeJsonArray(CACHE_KEYS.BOOKS, deduped);
+};
+
 const applyUpsertById = (rows: any[], payload: any) => {
   const next = [...rows];
   const idx = next.findIndex(x => x?.id === payload?.id);
@@ -616,6 +643,7 @@ export async function syncOfflineBookOps() {
           const created = await BooksService.postBooks(op.data);
           if (created?.id) {
             idMap[op.targetId] = created.id;
+            await replaceTempBookInCache(op.targetId, created);
           }
         } else if (op.action === 'update') {
           await BooksService.putBooks(resolvedId, op.data);

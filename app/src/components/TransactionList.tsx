@@ -61,7 +61,7 @@ export const TransactionList = () => {
   }, [transactions, selectedDate]);
 
   React.useEffect(() => {
-    if (books && books.length > 0 && !selectedBookId) {
+    if (books && books.length > 0 && (!selectedBookId || !books.some(b => b.id === selectedBookId))) {
       const defaultBook = books.find(b => b.isDefault) || books[0];
       setSelectedBookId(defaultBook.id);
     }
