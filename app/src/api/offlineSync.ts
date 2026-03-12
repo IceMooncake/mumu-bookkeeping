@@ -1,6 +1,5 @@
 ﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TransactionsService, OpenAPI, TasksService, BooksService } from './generated';
-import Toast from 'react-native-toast-message';
 import {
   deleteCategoryTagFromRemote,
   pullRemoteCategoriesToLocal,
@@ -13,7 +12,6 @@ const OFFLINE_TX_QUEUE = '@offline_tx_queue';
 const OFFLINE_TX_OPS = '@offline_tx_ops_v1';
 const OFFLINE_TASK_OPS = '@offline_task_ops_v1';
 const OFFLINE_BOOK_OPS = '@offline_book_ops_v1';
-const IS_OFFLINE_KEY = '@app_is_offline';
 const LAST_SYNC_CURSOR_KEY = '@sync_last_cursor_v1';
 
 let isOnlineInternal = true;
@@ -225,7 +223,7 @@ export function startHeartbeat(
           onCategorySyncComplete(syncedCategoryCount);
         }
       }
-    } catch (e) {
+    } catch {
       if (isOnlineInternal) {
         isOnlineInternal = false;
         onStatusChange(false);
@@ -284,6 +282,26 @@ const getTxOps = async (): Promise<TxOp[]> => {
     return [];
   }
 };
+
+export async function getPendingTransactionDeleteIds(): Promise<string[]> {
+  const ops = await getTxOps();
+  return ops
+    .filter(op => op.action === 'delete')
+    .map(op => op.targetId);
+}
+
+export async function getPendingTransactionUpdateMap(): Promise<Record<string, any>> {
+  const ops = await getTxOps();
+  const map: Record<string, any> = {};
+  for (const op of ops) {
+    if (op.action !== 'update') continue;
+    map[op.targetId] = {
+      ...(map[op.targetId] || {}),
+      ...(op.data || {}),
+    };
+  }
+  return map;
+}
 
 const saveTxOps = async (ops: TxOp[]) => {
   await AsyncStorage.setItem(OFFLINE_TX_OPS, JSON.stringify(ops));

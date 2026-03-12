@@ -582,6 +582,73 @@
       }
     },
     "/transactions/{id}": {
+      "put": {
+        "tags": [
+          "Transactions"
+        ],
+        "summary": "编辑一笔账单",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amount": {
+                    "type": "number"
+                  },
+                  "type": {
+                    "type": "string"
+                  },
+                  "category": {
+                    "type": "string"
+                  },
+                  "merchant": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "remark": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "payMethod": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Transaction"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "账单不存在"
+          }
+        }
+      },
       "delete": {
         "tags": [
           "Transactions"

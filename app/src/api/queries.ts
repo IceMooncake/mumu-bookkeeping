@@ -11,6 +11,8 @@ import {
   queueTaskOperation,
   queueTransactionUpdateLocal,
   queueTransactionDeleteLocal,
+  getPendingTransactionDeleteIds,
+  getPendingTransactionUpdateMap,
 } from './offlineSync';
 
 // We export the generated interfaces for components
@@ -32,6 +34,33 @@ const withTimeout = async <T>(promise: Promise<T>, ms: number = 3000): Promise<T
   });
   
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+};
+
+const signedAmount = (type?: string, amount?: number) => {
+  const n = Number(amount || 0);
+  if (type === 'EXPENSE') return -Math.abs(n);
+  if (type === 'INCOME') return Math.abs(n);
+  return 0;
+};
+
+const persistBooksCache = async (books: any[]) => {
+  try {
+    await AsyncStorage.setItem(CACHE_KEYS.BOOKS, JSON.stringify(books || []));
+  } catch {
+    // ignore cache persist error
+  }
+};
+
+const adjustBooksBalance = async (queryClient: ReturnType<typeof useQueryClient>, bookId: string | undefined, delta: number) => {
+  if (!bookId || !delta) return;
+  let nextBooks: any[] = [];
+  queryClient.setQueryData(['books'], (old: any) => {
+    nextBooks = (old || []).map((book: any) =>
+      book.id === bookId ? { ...book, balance: Number(book.balance || 0) + delta, isPending: true } : book
+    );
+    return nextBooks;
+  });
+  await persistBooksCache(nextBooks);
 };
 
 export const useBooks = () => {
@@ -76,11 +105,28 @@ export const useTransactions = (bookId?: string) => {
       }
       
       const offlineQueue = await getOfflineQueue();
+      const pendingDeleteIds = new Set(await getPendingTransactionDeleteIds());
+      const pendingUpdateMap = await getPendingTransactionUpdateMap();
       const relevantOffline = bookId 
         ? offlineQueue.filter((t: any) => t.bookId === bookId) 
         : offlineQueue;
-        
-      const localFirstData = [...relevantOffline, ...serverData] as Transaction[];
+
+      const filteredServerData = serverData.filter((tx: any) => !pendingDeleteIds.has(tx.id));
+      const filteredOffline = relevantOffline.filter((tx: any) => {
+        const localKey = (tx as any)._offlineId || (tx as any).id;
+        return !pendingDeleteIds.has(localKey);
+      });
+
+      const applyPendingUpdate = (tx: any) => {
+        const key = tx.id || tx._offlineId;
+        const patch = pendingUpdateMap[key];
+        return patch ? { ...tx, ...patch, isPending: true } : tx;
+      };
+
+      const localFirstData = [
+        ...filteredOffline.map(applyPendingUpdate),
+        ...filteredServerData.map(applyPendingUpdate),
+      ] as Transaction[];
       // sort by date descending
       return localFirstData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     },
@@ -115,11 +161,22 @@ export const useCreateTransaction = () => {
       if (previousTxsAll) queryClient.setQueryData(queryKeyAll, updater);
       queryClient.setQueryData(queryKeyBook, updater);
 
-      return { previousTxsAll, previousTxsBook, queryKeyAll, queryKeyBook };
+      const previousBooks = queryClient.getQueryData(['books']);
+      await adjustBooksBalance(
+        queryClient,
+        newTx.bookId,
+        signedAmount(newTx.type, newTx.amount)
+      );
+
+      return { previousTxsAll, previousTxsBook, queryKeyAll, queryKeyBook, previousBooks };
     },
     onError: (_err, _newTx, context: any) => {
       if (context?.previousTxsAll) queryClient.setQueryData(context.queryKeyAll, context.previousTxsAll);
       if (context?.previousTxsBook) queryClient.setQueryData(context.queryKeyBook, context.previousTxsBook);
+      if (context?.previousBooks) {
+        queryClient.setQueryData(['books'], context.previousBooks);
+        persistBooksCache(context.previousBooks);
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -139,6 +196,43 @@ export const useUpdateTransaction = () => {
       await queryClient.cancelQueries({ queryKey: ['transactions'] });
       const previousAll = queryClient.getQueryData(['transactions', undefined]);
       const previousBook = queryClient.getQueryData(['transactions', (data as any)?.bookId]);
+      const previousBooks = queryClient.getQueryData(['books']);
+
+      const txSnapshots = queryClient.getQueriesData({ queryKey: ['transactions'] });
+      let targetTx: any = null;
+      for (const [, value] of txSnapshots) {
+        const found = (value as any[] | undefined)?.find((tx: any) => tx.id === id || tx._offlineId === id);
+        if (found) {
+          targetTx = found;
+          break;
+        }
+      }
+
+      const before = targetTx ? signedAmount(targetTx.type, targetTx.amount) : 0;
+      const after = signedAmount(
+        (data as any)?.type ?? targetTx?.type,
+        (data as any)?.amount ?? targetTx?.amount,
+      );
+      const bookIdForDelta = (data as any)?.bookId ?? targetTx?.bookId;
+      const balanceDelta = after - before;
+      const allStorageKeys = await AsyncStorage.getAllKeys();
+      const txCacheKeys = allStorageKeys.filter(k => k.startsWith(`${CACHE_KEYS.TRANSACTIONS}_`));
+      const previousTxCaches: Array<{ key: string; raw: string | null }> = [];
+
+      for (const key of txCacheKeys) {
+        const raw = await AsyncStorage.getItem(key);
+        previousTxCaches.push({ key, raw });
+        if (!raw) continue;
+        try {
+          const rows = JSON.parse(raw) as any[];
+          const nextRows = (rows || []).map((tx: any) =>
+            tx.id === id || tx._offlineId === id ? { ...tx, ...data, isPending: true } : tx
+          );
+          await AsyncStorage.setItem(key, JSON.stringify(nextRows));
+        } catch {
+          // ignore malformed cache
+        }
+      }
 
       const updater = (old: any) =>
         (old || []).map((tx: any) =>
@@ -150,13 +244,34 @@ export const useUpdateTransaction = () => {
         queryClient.setQueryData(['transactions', (data as any).bookId], updater);
       }
 
-      return { previousAll, previousBook, bookId: (data as any)?.bookId };
+      await adjustBooksBalance(queryClient, bookIdForDelta, balanceDelta);
+
+      return { previousAll, previousBook, bookId: (data as any)?.bookId, previousTxCaches, previousBooks };
     },
     onError: (_err, _vars, context: any) => {
       queryClient.setQueryData(['transactions', undefined], context?.previousAll);
       if (context?.bookId) {
         queryClient.setQueryData(['transactions', context.bookId], context?.previousBook);
       }
+      if (context?.previousBooks) {
+        queryClient.setQueryData(['books'], context.previousBooks);
+        persistBooksCache(context.previousBooks);
+      }
+      Promise.all(
+        (context?.previousTxCaches || []).map(async (item: any) => {
+          try {
+            if (item.raw === null) {
+              await AsyncStorage.removeItem(item.key);
+            } else {
+              await AsyncStorage.setItem(item.key, item.raw);
+            }
+          } catch {
+            // ignore cache rollback failure
+          }
+        })
+      ).catch(() => {
+        // ignore cache rollback batch failure
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });
@@ -175,14 +290,65 @@ export const useDeleteTransaction = () => {
     onMutate: async ({ id }) => {
       await queryClient.cancelQueries({ queryKey: ['transactions'] });
       const previous = queryClient.getQueriesData({ queryKey: ['transactions'] });
+      const previousBooks = queryClient.getQueryData(['books']);
+
+      let targetTx: any = null;
+      for (const [, value] of previous) {
+        const found = (value as any[] | undefined)?.find((tx: any) => tx.id === id || tx._offlineId === id);
+        if (found) {
+          targetTx = found;
+          break;
+        }
+      }
+      const balanceDelta = targetTx ? -signedAmount(targetTx.type, targetTx.amount) : 0;
+      const targetBookId = targetTx?.bookId;
+
+      const allStorageKeys = await AsyncStorage.getAllKeys();
+      const txCacheKeys = allStorageKeys.filter(k => k.startsWith(`${CACHE_KEYS.TRANSACTIONS}_`));
+      const previousTxCaches: Array<{ key: string; raw: string | null }> = [];
+
+      for (const key of txCacheKeys) {
+        const raw = await AsyncStorage.getItem(key);
+        previousTxCaches.push({ key, raw });
+        if (!raw) continue;
+        try {
+          const rows = JSON.parse(raw) as any[];
+          const nextRows = (rows || []).filter((tx: any) => tx.id !== id && tx._offlineId !== id);
+          await AsyncStorage.setItem(key, JSON.stringify(nextRows));
+        } catch {
+          // ignore malformed cache
+        }
+      }
+
       queryClient.setQueriesData({ queryKey: ['transactions'] }, (old: any) =>
         (old || []).filter((tx: any) => tx.id !== id && tx._offlineId !== id)
       );
-      return { previous };
+      await adjustBooksBalance(queryClient, targetBookId, balanceDelta);
+
+      return { previous, previousTxCaches, previousBooks };
     },
     onError: (_err, _vars, context: any) => {
       (context?.previous || []).forEach(([key, value]: any[]) => {
         queryClient.setQueryData(key, value);
+      });
+      if (context?.previousBooks) {
+        queryClient.setQueryData(['books'], context.previousBooks);
+        persistBooksCache(context.previousBooks);
+      }
+      Promise.all(
+        (context?.previousTxCaches || []).map(async (item: any) => {
+          try {
+            if (item.raw === null) {
+              await AsyncStorage.removeItem(item.key);
+            } else {
+              await AsyncStorage.setItem(item.key, item.raw);
+            }
+          } catch {
+            // ignore cache rollback failure
+          }
+        })
+      ).catch(() => {
+        // ignore cache rollback batch failure
       });
     },
     onSettled: () => {
