@@ -64,14 +64,12 @@ export const TransactionList = () => {
       Alert.alert('提示', '请输入有效的金额');
       return;
     }
-    if (!category.trim()) {
-      Alert.alert('提示', '请选择标签');
-      return;
-    }
     if (!selectedBookId) {
       Alert.alert('提示', '请先选择账本');
       return;
     }
+
+    const finalCategory = category.trim() || '未分类';
 
     const parsedDate = new Date(dateStr.replace(' ', 'T') + ':00');
     if (isNaN(parsedDate.getTime())) {
@@ -84,7 +82,7 @@ export const TransactionList = () => {
       await createTransactionMutation.mutateAsync({
         amount: Number(amount),
         type,
-        category,
+        category: finalCategory,
         merchant: null,
         remark: remark.trim() || null,
         payMethod: null,
