@@ -120,19 +120,6 @@ export const TransactionList = () => {
               结余: ￥{(activeBook.balance || 0).toFixed(2)}
             </Text>
           )}
-          {activeBook && (
-            <TouchableOpacity style={styles.recordBtn} onPress={() => {
-              // Create a date utilizing selectedDate's YYYY-MM-DD but current time HH:mm
-              const now = new Date();
-              const newD = new Date(selectedDate);
-              newD.setHours(now.getHours());
-              newD.setMinutes(now.getMinutes());
-              setDateStr(formatDateTime(newD));
-              setModalVisible(true);
-            }}>
-              <Text style={styles.recordBtnText}>+ 记一笔</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
 
@@ -263,6 +250,23 @@ export const TransactionList = () => {
           showsVerticalScrollIndicator={false}
         />
       ))}
+
+      {/* Floating Action Button */}
+      {activeBook && (
+        <TouchableOpacity 
+          style={styles.floatingBtn} 
+          onPress={() => {
+            const now = new Date();
+            const newD = new Date(selectedDate);
+            newD.setHours(now.getHours());
+            newD.setMinutes(now.getMinutes());
+            setDateStr(formatDateTime(newD));
+            setModalVisible(true);
+          }}
+        >
+          <Text style={styles.floatingBtnText}>+</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -303,6 +307,28 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  floatingBtn: {
+    position: 'absolute',
+    right: 20,
+    bottom: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#3b82f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  floatingBtnText: {
+    color: '#ffffff',
+    fontSize: 32,
+    fontWeight: '300',
+    lineHeight: 36,
   },
   bookSelector: {
     marginBottom: 12,
