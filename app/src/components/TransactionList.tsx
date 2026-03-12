@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useTransactions, useBooks, useCreateTransaction, Transaction } from '../api/queries';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { useSettings } from '../contexts/SettingsContext';
+import { useCategoryTags } from '../api/categoryTags';
 
 const formatDateTime = (date: Date) => {
   const pad = (n: number) => n.toString().padStart(2, '0');
@@ -27,7 +28,21 @@ export const TransactionList = () => {
   const { data: books, isLoading: isLoadingBooks } = useBooks();
   const { data: transactions, isLoading: isLoadingTxs, isError } = useTransactions(selectedBookId);
   const { heatmapBasis } = useSettings();
+  const { data: allTags } = useCategoryTags();
   const createTransactionMutation = useCreateTransaction();
+
+  const selectableTags = useMemo(
+    () => (allTags || []).filter(tag => tag.type === type),
+    [allTags, type]
+  );
+
+  const categoryTagMap = useMemo(() => {
+    const map = new Map<string, { bgColor: string; textColor: string }>();
+    (allTags || []).forEach(tag => {
+      map.set(`${tag.type}:${tag.name}`, { bgColor: tag.bgColor, textColor: tag.textColor });
+    });
+    return map;
+  }, [allTags]);
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
@@ -50,7 +65,7 @@ export const TransactionList = () => {
       return;
     }
     if (!category.trim()) {
-      Alert.alert('提示', '请输入分类');
+      Alert.alert('提示', '请选择标签');
       return;
     }
     if (!selectedBookId) {
@@ -94,10 +109,20 @@ export const TransactionList = () => {
   const renderItem = ({ item }: { item: Transaction }) => {
     const isExpense = item.type === 'EXPENSE';
     const amountStr = isExpense ? `-${Math.abs(item.amount)}` : `+${item.amount}`;
+    const tagStyle = categoryTagMap.get(`${item.type}:${item.category}`);
     return (
       <View style={styles.card}>
         <View style={styles.row}>
-          <Text style={styles.category}>{item.category}</Text>
+          <View
+            style={[
+              styles.categoryTag,
+              tagStyle
+                ? { backgroundColor: tagStyle.bgColor }
+                : styles.categoryTagDefault,
+            ]}
+          >
+            <Text style={[styles.category, tagStyle ? { color: tagStyle.textColor } : undefined]}>{item.category}</Text>
+          </View>
           <Text style={[styles.amount, { color: isExpense ? '#ef4444' : '#10b981' }]}>
             {amountStr}
           </Text>
@@ -139,13 +164,23 @@ export const TransactionList = () => {
             <View style={styles.typeSelector}>
               <TouchableOpacity 
                 style={[styles.typeBtn, type === 'EXPENSE' && styles.typeBtnActiveExpense]}
-                onPress={() => setType('EXPENSE')}
+                onPress={() => {
+                  setType('EXPENSE');
+                  if (category && !((allTags || []).some(tag => tag.type === 'EXPENSE' && tag.name === category))) {
+                    setCategory('');
+                  }
+                }}
               >
                 <Text style={[styles.typeBtnText, type === 'EXPENSE' && styles.typeBtnTextActive]}>支出</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.typeBtn, type === 'INCOME' && styles.typeBtnActiveIncome]}
-                onPress={() => setType('INCOME')}
+                onPress={() => {
+                  setType('INCOME');
+                  if (category && !((allTags || []).some(tag => tag.type === 'INCOME' && tag.name === category))) {
+                    setCategory('');
+                  }
+                }}
               >
                 <Text style={[styles.typeBtnText, type === 'INCOME' && styles.typeBtnTextActive]}>收入</Text>
               </TouchableOpacity>
@@ -166,12 +201,34 @@ export const TransactionList = () => {
               onChangeText={setDateStr}
             />
             
-            <TextInput
-              style={styles.input}
-              placeholder="分类 (例如: 餐饮)"
-              value={category}
-              onChangeText={setCategory}
-            />
+            <View style={styles.tagSelectorWrap}>
+              <Text style={styles.tagSelectorTitle}>选择标签</Text>
+              <View style={styles.tagsGrid}>
+                {selectableTags.length === 0 ? (
+                  <Text style={styles.tagEmptyText}>暂无可用标签，请到设置中添加</Text>
+                ) : (
+                  selectableTags.map(tag => {
+                    const isActive = category === tag.name;
+                    return (
+                      <TouchableOpacity
+                        key={tag.localId}
+                        onPress={() => setCategory(tag.name)}
+                        style={[
+                          styles.selectTag,
+                          {
+                            backgroundColor: tag.bgColor,
+                            borderColor: isActive ? '#111827' : 'transparent',
+                            transform: [{ scale: isActive ? 1.04 : 1 }],
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.selectTagText, { color: tag.textColor }]}>{tag.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </View>
+            </View>
 
             <TextInput
               style={styles.input}
@@ -372,9 +429,16 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   category: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  categoryTag: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  categoryTagDefault: {
+    backgroundColor: '#f3f4f6',
   },
   amount: {
     fontSize: 18,
@@ -453,6 +517,34 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     marginBottom: 16,
+  },
+  tagSelectorWrap: {
+    marginBottom: 16,
+  },
+  tagSelectorTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 8,
+  },
+  tagsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  selectTag: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1.5,
+  },
+  selectTagText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tagEmptyText: {
+    color: '#94a3b8',
+    fontSize: 13,
   },
   modalActions: {
     flexDirection: 'row',

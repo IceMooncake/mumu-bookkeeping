@@ -32,6 +32,19 @@ model Transaction {
   updatedAt DateTime @updatedAt
 }
 
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  type      String
+  color     String   @default("#E5E7EB")
+  bgColor   String   @default("#E5E7EB")
+  textColor String   @default("#111827")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, type])
+}
+
 model JsTask {
   id             String   @id @default(uuid())
   name           String

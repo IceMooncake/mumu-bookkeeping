@@ -1,6 +1,7 @@
 ﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TransactionsService, OpenAPI } from './generated';
 import Toast from 'react-native-toast-message';
+import { pullRemoteCategoriesToLocal, syncPendingCategoryOps } from './categoryTags';
 
 const OFFLINE_TX_QUEUE = '@offline_tx_queue';
 const IS_OFFLINE_KEY = '@app_is_offline';
@@ -17,7 +18,11 @@ export const getOnlineStatus = () => isOnlineInternal;
 /**
  * Starts a heartbeat check to ping the server.
  */
-export function startHeartbeat(onStatusChange: (isOnline: boolean) => void, onSyncComplete?: (count: number) => void) {
+export function startHeartbeat(
+  onStatusChange: (isOnline: boolean) => void,
+  onSyncComplete?: (count: number) => void,
+  onCategorySyncComplete?: (count: number) => void,
+) {
   const checkHeartbeat = async () => {
     try {
       // Very basic endpoint to test server reachable.
@@ -37,9 +42,15 @@ export function startHeartbeat(onStatusChange: (isOnline: boolean) => void, onSy
       
       // 每次心跳（只要是在线状态），都尝试清空缓存队列并与后端进行同步
       if (newStatus) {
-        const syncedCount = await syncOfflineTransactions();
-        if (syncedCount > 0 && onSyncComplete) {
-           onSyncComplete(syncedCount);
+        const syncedTxCount = await syncOfflineTransactions();
+        const syncedCategoryCount = await syncPendingCategoryOps();
+        await pullRemoteCategoriesToLocal();
+
+        if (syncedTxCount > 0 && onSyncComplete) {
+          onSyncComplete(syncedTxCount);
+        }
+        if (onCategorySyncComplete) {
+         onCategorySyncComplete(syncedCategoryCount);
         }
       }
     } catch (e) {

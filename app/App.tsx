@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, useMutation, useQuery } from '@tansta
 import Toast from 'react-native-toast-message';
 import { TransactionList } from './src/components/TransactionList';
 import { TaskList } from './src/components/TaskList';
+import { CategorySettings } from './src/components/CategorySettings';
 import { MumuAccessibilityService } from './src/api/accessibility';
 import { TransactionsService, BooksService } from './src/api/generated';
 import { addTransactionToOfflineQueue, syncOfflineTransactions, startHeartbeat, stopHeartbeat, getOnlineStatus } from './src/api/offlineSync';
@@ -51,6 +52,8 @@ function AccessibilityController({ visible }: { visible?: boolean }) {
           position: 'top',
         });
       }
+    }, () => {
+      queryClient.invalidateQueries({ queryKey: ['category-tags'] });
     });
 
     return () => stopHeartbeat();
@@ -324,7 +327,7 @@ function SettingsTab() {
   const { heatmapBasis, setHeatmapBasis } = useSettings();
 
   return (
-    <View style={styles.settingsWrapper}>
+    <ScrollView style={styles.settingsWrapper} contentContainerStyle={{ paddingBottom: 36 }}>
       {/* 设置项 UI 控制 */}
       <AccessibilityController visible={true} />
       
@@ -349,7 +352,12 @@ function SettingsTab() {
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+
+      <View style={styles.settingsSection}>
+        <Text style={styles.settingsGroupTitle}>标签偏好</Text>
+        <CategorySettings />
+      </View>
+    </ScrollView>
   );
 }
 
