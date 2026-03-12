@@ -10,6 +10,7 @@ import {
 import { CACHE_KEYS } from './queries';
 
 const OFFLINE_TX_QUEUE = '@offline_tx_queue';
+const OFFLINE_TX_OPS = '@offline_tx_ops_v1';
 const OFFLINE_TASK_OPS = '@offline_task_ops_v1';
 const OFFLINE_BOOK_OPS = '@offline_book_ops_v1';
 const IS_OFFLINE_KEY = '@app_is_offline';
@@ -24,6 +25,15 @@ type SyncEvent = {
   entityId: string;
   action: 'create' | 'update' | 'delete' | 'upsert' | string;
   payload: any;
+  createdAt: string;
+};
+
+type TxOpAction = 'update' | 'delete';
+type TxOp = {
+  opId: string;
+  action: TxOpAction;
+  targetId: string;
+  data?: any;
   createdAt: string;
 };
 
@@ -189,6 +199,7 @@ export function startHeartbeat(
       // 每次心跳（只要是在线状态），都尝试清空缓存队列并与后端进行同步
       if (newStatus) {
         const syncedTxCount = await syncOfflineTransactions();
+        const syncedTxOpsCount = await syncOfflineTransactionOps();
         const syncedCategoryCount = await syncPendingCategoryOps();
         const syncedTaskCount = await syncOfflineTaskOps();
         const syncedBookCount = await syncOfflineBookOps();
@@ -201,8 +212,8 @@ export function startHeartbeat(
           await pullRemoteCategoriesToLocal();
         }
 
-        if (syncedTxCount > 0 && onSyncComplete) {
-          onSyncComplete(syncedTxCount);
+        if ((syncedTxCount + syncedTxOpsCount) > 0 && onSyncComplete) {
+          onSyncComplete(syncedTxCount + syncedTxOpsCount);
         }
         if ((syncedTaskCount + syncedBookCount) > 0 && onSyncComplete) {
           onSyncComplete(syncedTaskCount + syncedBookCount);
@@ -262,6 +273,69 @@ export async function getOfflineQueue() {
   } catch {
     return [];
   }
+}
+
+const getTxOps = async (): Promise<TxOp[]> => {
+  const raw = await AsyncStorage.getItem(OFFLINE_TX_OPS);
+  if (!raw) return [];
+  try {
+    return JSON.parse(raw) as TxOp[];
+  } catch {
+    return [];
+  }
+};
+
+const saveTxOps = async (ops: TxOp[]) => {
+  await AsyncStorage.setItem(OFFLINE_TX_OPS, JSON.stringify(ops));
+};
+
+export async function queueTransactionUpdateLocal(targetId: string, data: any) {
+  const queue = await getOfflineQueue();
+  const offlineIdx = queue.findIndex((tx: any) => (tx._offlineId || tx.id) === targetId);
+  if (offlineIdx >= 0) {
+    queue[offlineIdx] = { ...queue[offlineIdx], ...data, _syncStatus: 'pending' };
+    await AsyncStorage.setItem(OFFLINE_TX_QUEUE, JSON.stringify(queue));
+    return;
+  }
+
+  const ops = await getTxOps();
+  const idx = ops.findIndex(op => op.action === 'update' && op.targetId === targetId);
+  if (idx >= 0) {
+    ops[idx] = { ...ops[idx], data: { ...(ops[idx].data || {}), ...(data || {}) } };
+  } else {
+    ops.push({
+      opId: `tx_op_${Date.now()}`,
+      action: 'update',
+      targetId,
+      data,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  await saveTxOps(ops);
+}
+
+export async function queueTransactionDeleteLocal(targetId: string) {
+  const queue = await getOfflineQueue();
+  const offlineIdx = queue.findIndex((tx: any) => (tx._offlineId || tx.id) === targetId);
+  if (offlineIdx >= 0) {
+    queue.splice(offlineIdx, 1);
+    await AsyncStorage.setItem(OFFLINE_TX_QUEUE, JSON.stringify(queue));
+    return;
+  }
+
+  const ops = await getTxOps();
+  const next = ops
+    .filter(op => !(op.action === 'update' && op.targetId === targetId))
+    .filter(op => !(op.action === 'delete' && op.targetId === targetId));
+
+  next.push({
+    opId: `tx_op_${Date.now()}`,
+    action: 'delete',
+    targetId,
+    createdAt: new Date().toISOString(),
+  });
+
+  await saveTxOps(next);
 }
 
 type TaskOpAction = 'create' | 'update' | 'delete';
@@ -388,6 +462,7 @@ export async function queueBookOperation(input: {
 }
 
 let isSyncing = false;
+let isSyncingTxOps = false;
 
 let isSyncingTaskOps = false;
 let isSyncingBookOps = false;
@@ -422,6 +497,49 @@ export async function syncOfflineTransactions() {
     return successCount;
   } finally {
     isSyncing = false;
+  }
+}
+
+export async function syncOfflineTransactionOps() {
+  if (!getOnlineStatus() || isSyncingTxOps) return 0;
+  isSyncingTxOps = true;
+  try {
+    const ops = await getTxOps();
+    if (ops.length === 0) return 0;
+
+    const base = getApiBase();
+    let successCount = 0;
+    const remaining: TxOp[] = [];
+
+    for (const op of ops) {
+      try {
+        if (op.action === 'update') {
+          const response = await fetch(`${base}/transactions/${op.targetId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(op.data || {}),
+          });
+          if (!response.ok) {
+            throw new Error('Update transaction failed');
+          }
+        } else {
+          const response = await fetch(`${base}/transactions/${op.targetId}`, {
+            method: 'DELETE',
+          });
+          if (!response.ok && response.status !== 404) {
+            throw new Error('Delete transaction failed');
+          }
+        }
+        successCount += 1;
+      } catch {
+        remaining.push(op);
+      }
+    }
+
+    await saveTxOps(remaining);
+    return successCount;
+  } finally {
+    isSyncingTxOps = false;
   }
 }
 

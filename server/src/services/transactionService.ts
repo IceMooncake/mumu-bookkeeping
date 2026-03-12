@@ -13,6 +13,22 @@ export interface CreateTransactionInput {
   date?: string;
 }
 
+export interface UpdateTransactionInput {
+  amount?: number;
+  type?: string;
+  category?: string;
+  merchant?: string | null;
+  remark?: string | null;
+  payMethod?: string | null;
+  date?: string;
+}
+
+const signedAmount = (type: string, amount: number) => {
+  if (type === 'EXPENSE') return -Math.abs(amount);
+  if (type === 'INCOME') return Math.abs(amount);
+  return 0;
+};
+
 export async function createTransactionWithBookBalance(input: CreateTransactionInput) {
   return prisma.$transaction(async tx => {
     let targetBookId = input.bookId ?? null;
@@ -113,5 +129,56 @@ export async function deleteTransactionWithBookBalance(id: string) {
     });
 
     return deleted;
+  });
+}
+
+export async function updateTransactionWithBookBalance(id: string, input: UpdateTransactionInput) {
+  return prisma.$transaction(async tx => {
+    const original = await (tx as any).transaction.findUnique({ where: { id } });
+    if (!original) return null;
+
+    const nextAmount = input.amount ?? original.amount;
+    const nextType = input.type ?? original.type;
+
+    const updated = await (tx as any).transaction.update({
+      where: { id },
+      data: {
+        amount: nextAmount,
+        type: nextType,
+        category: input.category ?? original.category,
+        merchant: input.merchant !== undefined ? input.merchant : original.merchant,
+        remark: input.remark !== undefined ? input.remark : original.remark,
+        payMethod: input.payMethod !== undefined ? input.payMethod : original.payMethod,
+        date: input.date ? new Date(input.date) : original.date,
+      },
+    });
+
+    if (original.bookId) {
+      const before = signedAmount(original.type, original.amount);
+      const after = signedAmount(nextType, nextAmount);
+      const delta = after - before;
+
+      if (delta !== 0) {
+        const updatedBook = await tx.book.update({
+          where: { id: original.bookId },
+          data: { balance: { increment: delta } },
+        });
+        await appendSyncEvent(tx as any, {
+          entityType: 'book',
+          entityId: updatedBook.id,
+          action: 'update',
+          payload: updatedBook,
+        });
+      }
+    }
+
+    await appendSyncEvent(tx as any, {
+      entityType: 'transaction',
+      entityId: updated.id,
+      action: 'update',
+      payload: updated,
+    });
+
+    return updated;
   });
 }

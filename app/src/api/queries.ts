@@ -4,7 +4,14 @@ import { TransactionsService, TasksService, BooksService } from './generated';
 import type { Transaction } from './generated/models/Transaction';
 import type { Task } from './generated/models/Task';
 import type { Book } from './generated/models/Book';
-import { getOnlineStatus, getOfflineQueue, addTransactionToOfflineQueue, queueTaskOperation } from './offlineSync';
+import {
+  getOnlineStatus,
+  getOfflineQueue,
+  addTransactionToOfflineQueue,
+  queueTaskOperation,
+  queueTransactionUpdateLocal,
+  queueTransactionDeleteLocal,
+} from './offlineSync';
 
 // We export the generated interfaces for components
 export type { Transaction, Task, Book };
@@ -113,6 +120,70 @@ export const useCreateTransaction = () => {
     onError: (_err, _newTx, context: any) => {
       if (context?.previousTxsAll) queryClient.setQueryData(context.queryKeyAll, context.previousTxsAll);
       if (context?.previousTxsBook) queryClient.setQueryData(context.queryKeyBook, context.previousTxsBook);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['books'] });
+    },
+  });
+};
+
+export const useUpdateTransaction = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<Transaction> }) => {
+      await queueTransactionUpdateLocal(id, data);
+      return { id, ...data } as any;
+    },
+    onMutate: async ({ id, data }) => {
+      await queryClient.cancelQueries({ queryKey: ['transactions'] });
+      const previousAll = queryClient.getQueryData(['transactions', undefined]);
+      const previousBook = queryClient.getQueryData(['transactions', (data as any)?.bookId]);
+
+      const updater = (old: any) =>
+        (old || []).map((tx: any) =>
+          tx.id === id || tx._offlineId === id ? { ...tx, ...data, isPending: true } : tx
+        );
+
+      queryClient.setQueryData(['transactions', undefined], updater);
+      if ((data as any)?.bookId) {
+        queryClient.setQueryData(['transactions', (data as any).bookId], updater);
+      }
+
+      return { previousAll, previousBook, bookId: (data as any)?.bookId };
+    },
+    onError: (_err, _vars, context: any) => {
+      queryClient.setQueryData(['transactions', undefined], context?.previousAll);
+      if (context?.bookId) {
+        queryClient.setQueryData(['transactions', context.bookId], context?.previousBook);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['books'] });
+    },
+  });
+};
+
+export const useDeleteTransaction = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      await queueTransactionDeleteLocal(id);
+      return { success: true };
+    },
+    onMutate: async ({ id }) => {
+      await queryClient.cancelQueries({ queryKey: ['transactions'] });
+      const previous = queryClient.getQueriesData({ queryKey: ['transactions'] });
+      queryClient.setQueriesData({ queryKey: ['transactions'] }, (old: any) =>
+        (old || []).filter((tx: any) => tx.id !== id && tx._offlineId !== id)
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context: any) => {
+      (context?.previous || []).forEach(([key, value]: any[]) => {
+        queryClient.setQueryData(key, value);
+      });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['transactions'] });

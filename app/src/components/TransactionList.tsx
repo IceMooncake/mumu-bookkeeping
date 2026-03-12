@@ -1,7 +1,6 @@
 ﻿import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, Modal, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { useQueryClient } from '@tanstack/react-query';
-import { useTransactions, useBooks, useCreateTransaction, Transaction } from '../api/queries';
+import { useTransactions, useBooks, useCreateTransaction, useUpdateTransaction, useDeleteTransaction, Transaction } from '../api/queries';
 import { CalendarHeatmap } from './CalendarHeatmap';
 import { useSettings } from '../contexts/SettingsContext';
 import { useCategoryTags } from '../api/categoryTags';
@@ -23,13 +22,15 @@ export const TransactionList = () => {
   const [dateStr, setDateStr] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [editingTxId, setEditingTxId] = useState<string | null>(null);
 
-  const queryClient = useQueryClient();
   const { data: books, isLoading: isLoadingBooks } = useBooks();
   const { data: transactions, isLoading: isLoadingTxs, isError } = useTransactions(selectedBookId);
   const { heatmapBasis } = useSettings();
   const { data: allTags } = useCategoryTags();
   const createTransactionMutation = useCreateTransaction();
+  const updateTransactionMutation = useUpdateTransaction();
+  const deleteTransactionMutation = useDeleteTransaction();
 
   const selectableTags = useMemo(
     () => (allTags || []).filter(tag => tag.type === type),
@@ -46,8 +47,8 @@ export const TransactionList = () => {
 
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
-    const dateStr = formatDateTime(selectedDate).split(' ')[0];
-    return transactions.filter(t => t.date.startsWith(dateStr));
+    const selectedDateKey = formatDateTime(selectedDate).split(' ')[0];
+    return transactions.filter(t => t.date.startsWith(selectedDateKey));
   }, [transactions, selectedDate]);
 
   React.useEffect(() => {
@@ -79,16 +80,32 @@ export const TransactionList = () => {
 
     try {
       setIsSubmitting(true);
-      await createTransactionMutation.mutateAsync({
-        amount: Number(amount),
-        type,
-        category: finalCategory,
-        merchant: null,
-        remark: remark.trim() || null,
-        payMethod: null,
-        bookId: selectedBookId,
-        date: parsedDate.toISOString(),
-      });
+      if (editingTxId) {
+        await updateTransactionMutation.mutateAsync({
+          id: editingTxId,
+          data: {
+            amount: Number(amount),
+            type,
+            category: finalCategory,
+            merchant: null,
+            remark: remark.trim() || null,
+            payMethod: null,
+            bookId: selectedBookId,
+            date: parsedDate.toISOString(),
+          } as any,
+        });
+      } else {
+        await createTransactionMutation.mutateAsync({
+          amount: Number(amount),
+          type,
+          category: finalCategory,
+          merchant: null,
+          remark: remark.trim() || null,
+          payMethod: null,
+          bookId: selectedBookId,
+          date: parsedDate.toISOString(),
+        });
+      }
 
       // Reset form
       setType('EXPENSE');
@@ -96,6 +113,7 @@ export const TransactionList = () => {
       setCategory('');
       setRemark('');
       setDateStr('');
+      setEditingTxId(null);
       setModalVisible(false);
     } catch (error: any) {
       Alert.alert('错误', error.message || '记账失败');
@@ -111,23 +129,67 @@ export const TransactionList = () => {
     return (
       <View style={styles.card}>
         <View style={styles.row}>
-          <View
-            style={[
-              styles.categoryTag,
-              tagStyle
-                ? { backgroundColor: tagStyle.bgColor }
-                : styles.categoryTagDefault,
-            ]}
-          >
-            <Text style={[styles.category, tagStyle ? { color: tagStyle.textColor } : undefined]}>{item.category}</Text>
+          <View style={styles.tagsInlineRow}>
+            <View
+              style={[
+                styles.categoryTag,
+                tagStyle
+                  ? { backgroundColor: tagStyle.bgColor }
+                  : styles.categoryTagDefault,
+              ]}
+            >
+              <Text style={[styles.category, tagStyle ? { color: tagStyle.textColor } : undefined]}>{item.category}</Text>
+            </View>
+            {item.merchant ? (
+              <View style={styles.merchantTag}>
+                <Text style={styles.merchantTagText}>{item.merchant}</Text>
+              </View>
+            ) : null}
           </View>
           <Text style={[styles.amount, { color: isExpense ? '#ef4444' : '#10b981' }]}>
             {amountStr}
           </Text>
         </View>
         <View style={styles.row}>
-          <Text style={styles.merchant}>{item.merchant || '未记录商户'}</Text>
+          <Text style={styles.remark}>{item.remark?.trim() || ''}</Text>
           <Text style={styles.date}>{formatDateTime(new Date(item.date))}</Text>
+        </View>
+        <View style={styles.itemActionsRow}>
+          <TouchableOpacity
+            onPress={() => {
+              setEditingTxId((item as any).id || (item as any)._offlineId || null);
+              setType(item.type as 'EXPENSE' | 'INCOME');
+              setAmount(String(item.amount));
+              setCategory(item.category || '');
+              setRemark(item.remark || '');
+              setDateStr(formatDateTime(new Date(item.date)));
+              setModalVisible(true);
+            }}
+          >
+            <Text style={styles.actionTextEdit}>编辑</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              const txId = (item as any).id || (item as any)._offlineId;
+              if (!txId) return;
+              Alert.alert('确认删除', '确定删除这笔流水吗？', [
+                { text: '取消', style: 'cancel' },
+                {
+                  text: '删除',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await deleteTransactionMutation.mutateAsync({ id: txId });
+                    } catch (err: any) {
+                      Alert.alert('删除失败', err?.message || '请稍后重试');
+                    }
+                  },
+                },
+              ]);
+            }}
+          >
+            <Text style={styles.actionTextDelete}>删除</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -157,7 +219,7 @@ export const TransactionList = () => {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>记一笔</Text>
+            <Text style={styles.modalTitle}>{editingTxId ? '编辑流水' : '记一笔'}</Text>
             
             <View style={styles.typeSelector}>
               <TouchableOpacity 
@@ -311,6 +373,7 @@ export const TransactionList = () => {
         <TouchableOpacity 
           style={styles.floatingBtn} 
           onPress={() => {
+            setEditingTxId(null);
             const now = new Date();
             const newD = new Date(selectedDate);
             newD.setHours(now.getHours());
@@ -426,6 +489,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 6,
   },
+  tagsInlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    paddingRight: 10,
+  },
+  itemActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 16,
+    marginTop: 6,
+  },
+  actionTextEdit: {
+    color: '#2563eb',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  actionTextDelete: {
+    color: '#dc2626',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   category: {
     fontSize: 14,
     fontWeight: '700',
@@ -442,9 +528,24 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-  merchant: {
-    fontSize: 14,
-    color: '#6b7280',
+  merchantTag: {
+    borderRadius: 999,
+    backgroundColor: '#eef2ff',
+    borderWidth: 1,
+    borderColor: '#c7d2fe',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  merchantTagText: {
+    fontSize: 12,
+    color: '#4338ca',
+    fontWeight: '600',
+  },
+  remark: {
+    fontSize: 13,
+    color: '#64748b',
+    flex: 1,
+    paddingRight: 8,
   },
   date: {
     fontSize: 12,

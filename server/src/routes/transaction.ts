@@ -2,7 +2,11 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { registry } from '../openapi';
 import { prisma } from '../db';
-import { createTransactionWithBookBalance, deleteTransactionWithBookBalance } from '../services/transactionService';
+import {
+  createTransactionWithBookBalance,
+  deleteTransactionWithBookBalance,
+  updateTransactionWithBookBalance,
+} from '../services/transactionService';
 
 export const transactionRouter = Router();
 
@@ -26,6 +30,16 @@ export const TransactionSchema = registry.register(
 export const CreateTransactionDto = TransactionSchema.omit({ id: true, createdAt: true, updatedAt: true, date: true }).extend({
   date: z.string().datetime().optional(),
   clientOpId: z.string().optional(),
+});
+
+export const UpdateTransactionDto = z.object({
+  amount: z.number().optional(),
+  type: z.string().optional(),
+  category: z.string().optional(),
+  merchant: z.string().nullable().optional(),
+  remark: z.string().nullable().optional(),
+  payMethod: z.string().nullable().optional(),
+  date: z.string().datetime().optional(),
 });
 
 registry.registerPath({
@@ -83,6 +97,43 @@ transactionRouter.post('/', async (req: Request, res: Response) => {
     res.json(tx);
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Params validate failed' }); 
+  }
+});
+
+registry.registerPath({
+  method: 'put',
+  path: '/transactions/{id}',
+  tags: ['Transactions'],
+  summary: '编辑一笔账单',
+  request: {
+    params: z.object({ id: z.string() }),
+    body: {
+      content: { 'application/json': { schema: UpdateTransactionDto } },
+    },
+  },
+  responses: {
+    200: {
+      description: '更新成功',
+      content: { 'application/json': { schema: TransactionSchema } },
+    },
+    404: {
+      description: '账单不存在',
+    },
+  },
+});
+
+transactionRouter.put('/:id', async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const data = UpdateTransactionDto.parse(req.body);
+    const updated = await updateTransactionWithBookBalance(id, data);
+    if (!updated) {
+      res.status(404).json({ error: 'Transaction not found' });
+      return;
+    }
+    res.json(updated);
+  } catch (error: any) {
+    res.status(400).json({ error: error.message || 'Update failed' });
   }
 });
 
